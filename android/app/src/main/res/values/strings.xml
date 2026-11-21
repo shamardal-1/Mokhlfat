@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">مخالفات حي الهرم</string>
+    <string name="title_activity_main">مخالفات حي الهرم</string>
+    <string name="package_name">com.haram.violations</string>
+    <string name="custom_url_scheme">com.haram.violations</string>
+</resources>

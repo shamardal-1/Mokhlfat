@@ -1,0 +1,27 @@
+{
+  "name": "haram-violations",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ملء نماذج مخالفات البناء (حي الهرم) بالصوت وإخراجها PDF — ويب + أندرويد",
+  "scripts": {
+    "test": "node test/parser.test.js",
+    "serve": "npx http-server www -p 8080 -c-1",
+    "android:add": "npx cap add android && node scripts/android-patch.cjs",
+    "android:icons": "npx capacitor-assets generate --android --iconBackgroundColor '#17335f' --splashBackgroundColor '#17335f'",
+    "android:sync": "npx cap sync android",
+    "android:open": "npx cap open android",
+    "android:apk": "npx cap sync android && cd android && ./gradlew assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "7.6.10",
+    "@capacitor/core": "7.6.10",
+    "@capacitor/filesystem": "7.1.9",
+    "@capacitor/share": "7.0.4",
+    "@capacitor-community/file-opener": "7.0.1",
+    "@capacitor-community/speech-recognition": "7.0.1"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "7.6.10"
+  }
+}

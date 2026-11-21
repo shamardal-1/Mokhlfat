@@ -1,0 +1,9 @@
+{
+  "appId": "com.haram.violations",
+  "appName": "مخالفات حي الهرم",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#f3f1ec"
+  }
+}

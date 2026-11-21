@@ -1,0 +1,64 @@
+# Every push to main: runs the tests, publishes the web app on GitHub Pages,
+# and builds an installable Android APK (download it from the run's "Artifacts").
+name: build
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: node test/parser.test.js
+
+  web:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: { name: github-pages, url: '${{ steps.deploy.outputs.page_url }}' }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: www }
+      - id: deploy
+        uses: actions/deploy-pages@v4
+
+  android:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - uses: android-actions/setup-android@v3
+      - run: npm ci
+      - name: Prepare Android project
+        run: |
+          if [ ! -d android ]; then npx cap add android; fi
+          node scripts/android-patch.cjs
+          npx capacitor-assets generate --android --iconBackgroundColor '#17335f' --splashBackgroundColor '#17335f'
+          npx cap sync android
+      - name: Build APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk "../mokhalafat-haram.apk"
+      - uses: actions/upload-artifact@v4
+        with: { name: mokhalafat-haram-apk, path: mokhalafat-haram.apk }
+      - name: Attach APK to release (tags v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with: { files: mokhalafat-haram.apk }
