@@ -94,7 +94,7 @@ const FMAP=Object.fromEntries(FIELDS.map(f=>[f[0],f]));
 const GROUPS={site:'📍 موقع المخالفة',insp:'🔎 المعاينة',lic:'📄 الترخيص',owner:'👤 المالك / المخالف',eng:'👷 المهندس والمقاول',viol:'⚠️ الأعمال المخالفة',reg:'🗂️ بيانات القيد بالسجل',dec:'⚖️ القرارات المرتبطة'};
 
 const jobS=()=>String(S.jobSuffix||'').replace(/^\s*(ال)?مهندس\s*/,'').trim();
-const DEF_SET={inspector:'',jobSuffix:'مدني',responsible:'',tanzeem:'',gm:'',legal:'',employee:'',price:'',defArea:'صحراء الأهرام',defStreet:'التقسيم',font:'plex',ink:'#111111',slash:true,autoMic:true};
+const DEF_SET={inspector:'',jobSuffix:'مدني',responsible:'',tanzeem:'',gm:'',legal:'',employee:'',price:'',defArea:'صحراء الأهرام',defStreet:'التقسيم',font:'plex',ink:'#111111',slash:true,autoMic:true,pause:'mid'};
 let S={...DEF_SET};
 let CASES=[];
 let cur=null; // {form, c}
@@ -219,7 +219,7 @@ async function renderForm(form,c,scale=2.2){
 async function makePdf(form,c){const cv=await renderForm(form,c);const{jsPDF}=window.jspdf;const pdf=new jsPDF({unit:'pt',format:'a4',compress:true});
  pdf.addImage(cv.toDataURL('image/jpeg',0.9),'JPEG',0,0,595.28,841.89);return{blob:pdf.output('blob'),cv}}
 
-const APP_VERSION='1.0.0';
+const APP_VERSION='1.1.0';
 
 /* ============ storage ============ */
 async function loadAll(){
@@ -244,6 +244,20 @@ function listen(owner,h){
   error:e=>{micOwner=null;toast(e==='not-allowed'?'محتاج إذن الميكروفون — فعّله من إعدادات المتصفح/التطبيق':e==='unavailable'?'خدمة التعرف على الصوت مش موجودة على الموبايل ده (نزّل تطبيق Google)':'المايك وقف — جرب تاني',3500);h.state&&h.state('idle')}});
  return true}
 function stopMic(){if(Plat.speech.listening)Plat.speech.stop()}
+/* one field by voice: keeps listening through short pauses; finishes after a silence (longer for IDs/dates)
+   or as soon as a national ID reaches 14 digits */
+const PAUSES={short:1.8,mid:3,long:4.5};
+function listenField(owner,key,{show,done,state}){
+ let acc='',live='',timer=null,finished=false;
+ const t=FMAP[key]?FMAP[key][2]:'text';
+ const wait=(PAUSES[S.pause]||3)*1000*(t==='nid'||t==='date'?1.6:1);
+ const finish=()=>{if(finished)return;finished=true;clearTimeout(timer);const txt=(acc+' '+live).trim();stopMic();if(txt)done(txt);else state&&state('idle')};
+ const arm=()=>{clearTimeout(timer);timer=setTimeout(finish,wait)};
+ const digits=()=>VParser.numsOf(acc+' '+live).map(String).join('').replace(/\D/g,'').length;
+ return listen(owner,{
+  partial:p=>{live=p;show((acc+' '+live).trim());arm();if(t==='nid'&&digits()>=14)finish()},
+  final:f=>{acc=(acc+' '+f).trim();live='';show(acc);arm();if(t==='nid'&&digits()>=14)finish()},
+  state:s=>{state&&state(s);if(s==='listening'&&!timer)timer=setTimeout(finish,wait+4000);if(s==='idle'&&!finished){finished=true;clearTimeout(timer);const txt=(acc+' '+live).trim();if(txt)done(txt)}}})}
 
 /* ============ understanding (on-device) ============ */
 function applyParse(text,c,form){
@@ -326,9 +340,9 @@ function vGuided(a){const list=guidedList();const c=cur.c;
  bindChips(a,c);
  const inp=$('#gv');inp.oninput=()=>{let v=inp.value;if(f[2]==='nid')v=VParser.toEn(v).replace(/\D/g,'');c[k]=v};
  const next=()=>{gIdx++;saveDraft();render();if(Plat.speech.supported&&S.autoMic!==false)setTimeout(()=>{const m=$('#mic');if(screen==='guided'&&micOwner!=='g'&&m)m.click()},250)};
- const startG=()=>listen('g',{partial:t=>{const l=$('#live');if(l)l.textContent=t},
-  final:t=>{const v=normalizeField(k,t);c[k]=v;const i=$('#gv');if(i){if(f[2]==='date'&&v&&!/^\d{4}-/.test(v))i.type='text';i.value=v}const l=$('#live');if(l)l.textContent='';
-   stopMic();setTimeout(next,450)},
+ const startG=()=>listenField('g',k,{show:t=>{const l=$('#live');if(l)l.textContent=t},
+  done:t=>{const v=normalizeField(k,t);c[k]=v;const i=$('#gv');if(i){if(f[2]==='date'&&v&&!/^\d{4}-/.test(v))i.type='text';i.value=v}const l=$('#live');if(l)l.textContent='';
+   setTimeout(next,700)},
   state:s=>{const m=$('#mic');if(m){m.classList.toggle('live',s==='listening');m.textContent=s==='listening'?'■':'🎤'}}});
  $('#mic').onclick=startG;
  $('#next').onclick=next;$('#skip').onclick=next;
@@ -343,7 +357,7 @@ function fieldInput(f,c,extra=''){const k=f[0],v=c[k]??'';const t=f[2];
 function bindFields(root,c,onChange){
  root.querySelectorAll('input[data-k]').forEach(i=>i.oninput=()=>{let v=i.value;if(FMAP[i.dataset.k][2]==='nid')v=VParser.toEn(v).replace(/\D/g,'');c[i.dataset.k]=v;onChange&&onChange(i.dataset.k)});
  root.querySelectorAll('[data-mic]').forEach(b=>b.onclick=()=>{const k=b.dataset.mic;const inp=root.querySelector(`input[data-k="${k}"]`);
-  const ok=listen('f_'+k,{partial:t=>{inp.placeholder=t},final:t=>{inp.placeholder='';const v=normalizeField(k,t);c[k]=v;if(inp.type==='date'&&!/^\d{4}-/.test(v))inp.type='text';inp.value=v;onChange&&onChange(k);stopMic()},
+  const ok=listenField('f_'+k,k,{show:t=>{inp.value='';inp.placeholder=t},done:t=>{inp.placeholder='';const v=normalizeField(k,t);c[k]=v;if(inp.type==='date'&&!/^\d{4}-/.test(v))inp.type='text';inp.value=v;onChange&&onChange(k)},
    state:s=>{b.textContent=s==='listening'?'⏺':'🎤';b.style.background=s==='listening'?'#fde2e0':''}});
   if(!ok&&!Plat.speech.supported)inp.focus()})}
 function chipsHtml(c){return `<div class="chips">${VIOL.map(v=>`<button class="chip ${(c.violations||[]).includes(v.k)?'on':''}" data-v="${v.k}" type="button">${v.l}</button>`).join('')}</div>`}
@@ -455,6 +469,8 @@ function vSettings(a){
  <div id="fprev" style="margin:12px 0;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fff;font-size:20px;font-weight:700;line-height:1.8"></div>
  <div class="chips">${Object.entries(INKS).map(([k,l])=>`<button class="chip ${(S.ink||'#111111')===k?'on':''}" data-ink="${k}"><span style="color:${k}">●</span> ${l}</button>`).join('')}</div>
  <label class="row" style="margin-top:12px;font-size:14px"><input type="checkbox" id="slash" style="width:auto" ${S.slash!==false?'checked':''}> اكتب ( / ) في أي خانة فاضية</label>
+ <div style="margin-top:12px;font-size:14px">المايك يستنى قد إيه لما تسكت قبل ما يقفل الخانة:</div>
+ <div class="chips" style="margin-top:6px">${[['short','قصير'],['mid','متوسط'],['long','طويل']].map(([k,l])=>`<button class="chip ${(S.pause||'mid')===k?'on':''}" data-pause="${k}">${l}</button>`).join('')}</div>
  <label class="row" style="margin-top:8px;font-size:14px"><input type="checkbox" id="autoMic" style="width:auto" ${S.autoMic!==false?'checked':''}> في وضع "خانة خانة" المايك يفتح لوحده</label></div>
  <div class="card"><h3>📍 قيم افتراضية</h3><label class="f"><span>المنطقة</span><input data-s="defArea" value="${esc(S.defArea)}"></label></div>
  <div class="card"><h3>💾 نسخة احتياطية</h3><div class="hint" style="text-align:right;margin-bottom:10px">القضايا محفوظة على الموبايل ده بس. اعمل نسخة احتياطية كل فترة وابعتها لنفسك.</div>
@@ -465,7 +481,8 @@ function vSettings(a){
  const fp=()=>{const f=PFONTS[S.font]||PFONTS.plex;const e=$('#fprev');e.style.fontFamily=`'${f[0]}',Cairo`;e.style.color=INKS[S.ink]?S.ink:'#111';e.textContent='عبد الله صلاح الدين حسن نايل — قطعة ٤٥ل — ٢٩٧٠٩٢٤٢١٠٢٧١٦'};fp();
  a.querySelectorAll('[data-font]').forEach(b=>b.onclick=()=>{S.font=b.dataset.font;a.querySelectorAll('[data-font]').forEach(x=>x.classList.toggle('on',x===b));fp()});
  a.querySelectorAll('[data-ink]').forEach(b=>b.onclick=()=>{S.ink=b.dataset.ink;a.querySelectorAll('[data-ink]').forEach(x=>x.classList.toggle('on',x===b));fp()});
- $('#slash').onchange=e=>S.slash=e.target.checked;$('#autoMic').onchange=e=>S.autoMic=e.target.checked;
+ $('#slash').onchange=e=>S.slash=e.target.checked;
+ a.querySelectorAll('[data-pause]').forEach(b=>b.onclick=()=>{S.pause=b.dataset.pause;a.querySelectorAll('[data-pause]').forEach(x=>x.classList.toggle('on',x===b))});$('#autoMic').onchange=e=>S.autoMic=e.target.checked;
  $('#exp').onclick=async()=>{const blob=new Blob([JSON.stringify({app:'haram-violations',v:1,at:new Date().toISOString(),settings:S,cases:CASES},null,1)],{type:'application/json'});
   const name=`نسخة احتياطية مخالفات ${today()}.json`;try{await Plat.files.share(blob,name,'application/json')}catch(e){}};
  $('#imp').onclick=()=>$('#impf').click();

@@ -42,21 +42,30 @@ const speech = (() => {
 
   const R = G.SpeechRecognition || G.webkitSpeechRecognition;
   if (!R) return { supported: false, listening: false, start: async () => false, stop: async () => {} };
-  let rec = null;
+  let rec = null, session = '';
   const make = () => {
-    rec = new R(); rec.lang = 'ar-EG'; rec.continuous = true; rec.interimResults = true; rec.maxAlternatives = 1;
-    rec.onstart = () => setState('listening');
+    rec = new R(); rec.lang = 'ar-EG'; rec.continuous = !/Android/i.test(navigator.userAgent); rec.interimResults = true; rec.maxAlternatives = 1;
+    rec.onstart = () => { session = ''; setState('listening'); };
+    /* Android Chrome repeats the whole utterance in every result ("قطعه", "قطعه 45", "قطعه 45 لام" …).
+       So we rebuild the session text from all results, collapsing any result that extends the previous one,
+       and hand it to the app ONCE when the session ends. */
     rec.onresult = e => {
-      let interim = '';
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const r = e.results[i];
-        if (r.isFinal) { const t = r[0].transcript.trim(); if (t && h && h.final) h.final(t); }
-        else interim += r[0].transcript;
+      const out = [];
+      for (let i = 0; i < e.results.length; i++) {
+        const t = (e.results[i][0].transcript || '').trim(); if (!t) continue;
+        const last = out[out.length - 1];
+        if (last !== undefined && (t.startsWith(last) || last.startsWith(t))) out[out.length - 1] = t.length >= last.length ? t : last;
+        else out.push(t);
       }
-      h && h.partial && h.partial(interim);
+      session = out.join(' ');
+      h && h.partial && h.partial(session);
     };
     rec.onerror = e => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { want = false; h && h.error && h.error('not-allowed'); } };
-    rec.onend = () => { if (want) { try { rec.start(); } catch (x) { setTimeout(() => { try { want && rec.start(); } catch (y) {} }, 250); } } else setState('idle', 'stopped'); };
+    rec.onend = () => {
+      const t = session.trim(); session = '';
+      if (t && h && h.final) h.final(t);
+      if (want) { try { rec.start(); } catch (x) { setTimeout(() => { try { want && rec.start(); } catch (y) {} }, 250); } } else setState('idle', 'stopped');
+    };
   };
   return {
     supported: true,

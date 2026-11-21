@@ -218,7 +218,7 @@ KW.forEach((k, i) => k.p.forEach(p => PH.push({ p: fold(p), i })));
 PH.sort((a, b) => b.p.length - a.p.length);
 
 const VIOL_RX = [
-  ['basement', /(بدروم|دروم)/], ['projections', /(بروز|ابعاد)/], ['shafts', /(منور|مناور)/], ['columns', /(محاور|اعمده|عواميد|العمدان)/],
+  ['basement', /(بدروم|دروم)/], ['projections', /(بروز|برواز|ابعاد)/], ['shafts', /(منور|مناور)/], ['columns', /(محاور|اعمده|عواميد|العمدان)/],
   ['extraFloor', /(دور زايد|دور زائد|دور زياده|دور مخالف|زود دور|زوّد دور|بني دور|دور اضافي)/], ['roof', /(صب سقف|السقف|سقف)/],
   ['height', /(ارتفاع)/], ['setback', /(الردود|ردود|ارتداد)/], ['facade', /(واجهه|واجهات)/], ['garage', /(جراج|الجراج)/],
 ];
@@ -243,7 +243,15 @@ function normalizeValue(key, raw, today) {
   if (key === 'floorFrom' || key === 'floorTo') return parseFloor(v);
   if (key === 'areaM2') { const n = numsOf(v.replace(/متر|مربع|م2|م٢/g, ' ')); return n.length ? String(n[0]) : ''; }
   if (key === 'licYear') { const n = numsOf(v); if (!n.length) return ''; let y = n[0]; if (y < 100) y += 2000; return String(y); }
-  if (key === 'plot') return spokenToDigits(v).replace(/\s+(?=[ء-ي]{1,2}$)/, '').replace(/^(رقم)\s*/, '');
+  if (key === 'plot') {
+    /* spoken letter names after the number: "45 لام" -> 45ل */
+    const LET = { 'لام': 'ل', 'ميم': 'م', 'نون': 'ن', 'كاف': 'ك', 'باء': 'ب', 'بيه': 'ب', 'بي': 'ب', 'جيم': 'ج', 'دال': 'د', 'هاء': 'هـ', 'ها': 'هـ', 'هه': 'هـ', 'واو': 'و', 'زين': 'ز', 'زاي': 'ز', 'حاء': 'ح', 'حا': 'ح', 'طاء': 'ط', 'طا': 'ط', 'ياء': 'ي', 'يا': 'ي', 'الف': 'أ', 'ألف': 'أ', 'سين': 'س', 'عين': 'ع', 'تاء': 'ت', 'تا': 'ت', 'راء': 'ر', 'را': 'ر', 'فاء': 'ف', 'فا': 'ف', 'صاد': 'ص', 'قاف': 'ق' };
+    const w = v.split(/\s+/); const lastW = fold(w[w.length - 1].replace(/^(حرف)$/, ''));
+    let letter = '';
+    if (w.length > 1 && LET[lastW] !== undefined) { letter = LET[lastW]; w.pop(); if (fold(w[w.length - 1]) === 'حرف') w.pop(); v = w.join(' '); }
+    return (spokenToDigits(v).replace(/\s+(?=[\u0621-\u064A]{1,2}$)/, '').replace(/^(رقم)\s*/, '') + letter);
+  }
+  if (key === 'plot_old') return spokenToDigits(v).replace(/\s+(?=[ء-ي]{1,2}$)/, '').replace(/^(رقم)\s*/, '');
   if (NUMERIC.includes(key)) return spokenToDigits(v).replace(/\s+/g, ' ');
   const LEAD = { street: /^(بشارع|شارع|الشارع)\s+/, addrStreet: /^(بشارع|شارع|الشارع)\s+/, area: /^(بمنطقه|منطقه|المنطقه|مدينه)\s+/, addrArea: /^(بمنطقه|منطقه|المنطقه|مدينه)\s+/,
     addrDistrict: /^(حي)\s+/, addrGov: /^(محافظه|المحافظه)\s+/, ownerName: /^(المالك|المخالف|الاستاذ|السيد)\s+/, engName: /^(المهندس|مهندس|م\/?)\s+/, contrName: /^(المقاول)\s+/ };

@@ -39,4 +39,8 @@ eq('t4 viol', r.violations, ['projections','shafts','columns']);
  .forEach(([k,a,b])=>eq('nv '+k+' '+a,P.normalizeValue(k,a,T),b));
 r = P.parseTranscript('والمالك محمد على ابراهيم وصفته مستأجر والعنوان عمارة رقم 12 شارع فيصل منطقة الطالبية محافظة الجيزة', 'report', T);
 eq('t5', r.values, {ownerName:'محمد على ابراهيم',capacity:'مستأجر',addrNo:'12',addrStreet:'فيصل',addrArea:'الطالبية',addrGov:'الجيزة'});
+r = P.parseTranscript('قطعه 45 لام شارع التقسيم المالك عبد الله صلاح الدين حسن نايل الرقم القومي 2 9 7 0 9 2 4 2 1 0 2 7 1 6 ترخيص رقم 58 لسنه 2015 عدم تنفيذ البدروم وزياده البرواز من الدور الارضي الى الدور الرابع المسطح ميت متر مربع', 'report', T);
+eq('t6 android', r.values, {plot:'45ل',street:'التقسيم',ownerName:'عبد الله صلاح الدين حسن نايل',ownerNid:'29709242102716',licNo:'58',licYear:'2015',floorFrom:'الأرضي',floorTo:'الرابع',areaM2:'100'});
+eq('t6 viol', r.violations, ['basement','projections']);
+[['plot','45 لام','45ل'],['plot','مية وتلاتة وسبعين حرف هاء','173هـ'],['plot','خمسة وأربعين ل','45ل'],['plot','12','12']].forEach(([k,a,b])=>eq('nv '+k+' '+a,P.normalizeValue(k,a,T),b));
 console.log(`pass ${pass} fail ${fail}`);
