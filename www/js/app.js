@@ -8,7 +8,7 @@ const toEn=s=>String(s??'').replace(/[٠-٩]/g,d=>AR.indexOf(d)).replace(/[۰-۹
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const today=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')};
 const addDays=(iso,n)=>{const d=new Date(iso+'T12:00');d.setDate(d.getDate()+n);return d.toISOString().slice(0,10)};
-const fmtDate=iso=>{if(!iso||iso==='/')return'';const m=String(iso).match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);if(!m)return toAr(iso);return toAr(`${+m[3]} / ${+m[2]} / ${m[1]}`)+'م'};
+const fmtDate=iso=>{if(!iso||iso==='/'||iso==='∅')return'';const m=String(iso).match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);if(!m)return toAr(iso);return toAr(`${+m[3]} / ${+m[2]} / ${m[1]}`)+'م'};
 const nowHour=()=>{const d=new Date();let h=d.getHours(),p=h<12?'صباحاً':'مساءً';h=h%12||12;return toAr(h+':'+String(d.getMinutes()).padStart(2,'0'))+' '+p};
 function toast(t,ms=2600){const e=document.createElement('div');e.className='toast';e.textContent=t;document.body.appendChild(e);setTimeout(()=>e.remove(),ms)}
 const uid=()=>'c_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
@@ -29,197 +29,134 @@ const FORMS={
  report:{name:'محضر مخالفة أعمال',short:'محضر مخالفة',ic:'📝',col:'#17335f',reg:'سجل محاضر مخالفات البناء'},
  stop:{name:'قرار إيقاف أعمال مخالفة',short:'قرار إيقاف',ic:'✋',col:'#c8811a',reg:'سجل قرارات الإيقاف'},
  removal:{name:'قرار تصحيح / إزالة أعمال مخالفة',short:'قرار إزالة / تصحيح',ic:'🏚️',col:'#b42318',reg:'سجل قرارات الإزالة والتصحيح'}};
-const FK={report:'r',stop:'s',removal:'x'};
+const REGIONS={sahara:'صحراء الأهرام',haram:'الهرم'};
 
-const VIOL=[
- {k:'conv',l:'تحويل استخدام',t:'عمل تعديلات معمارية بغرض التحويل من {convFrom} إلى {convTo}'},
- {k:'basement',l:'عدم تنفيذ الدروم',t:'عدم تنفيذ الدروم العلوي والسفلي'},
- {k:'projections',l:'زيادة الأبعاد والبروزات',t:'زيادة أبعاد وبروزات المبنى'},
- {k:'shafts',l:'تقليل المناور',t:'تقليل مسطحات المناور'},
- {k:'columns',l:'تغيير محاور الأعمدة',t:'تغيير محاور بعض الأعمدة'},
- {k:'extraFloor',l:'صب وبناء دور زائد',t:'صب وبناء دور زائد عن المرخص به'},
- {k:'roof',l:'صب سقف',t:'صب سقف بدون ترخيص'},
- {k:'height',l:'تجاوز الارتفاع',t:'تجاوز قيود الارتفاع المسموح بها'},
- {k:'setback',l:'عدم ترك الردود',t:'عدم ترك الردود القانونية'},
- {k:'facade',l:'تعديل الواجهات',t:'تعديل الواجهات بالمخالفة للرسومات المعتمدة'},
- {k:'garage',l:'إلغاء الجراج',t:'إلغاء الجراج المخصص لانتظار السيارات'}];
+/* the six template sets: every set has the three forms (pdf pages 1,2,3) */
+const TPLS={
+ S1:{region:'sahara',lic:false,name:'بدون ترخيص',desc:'بصب وبناء الدور … بدون ترخيص'},
+ S2:{region:'sahara',lic:true,name:'عدم تنفيذ البدروم + البروزات والمناور',desc:'عدم تنفيذ البدروم العلوي وتغيير منسوب السفلي، وزيادة الأبعاد والبروزات وتقليل المناور'},
+ S3:{region:'sahara',lic:true,name:'زيادة البروزات وتقليل المناور',desc:'زيادة أبعاد وبروزات المبنى على منطقة الردود وتقليل مسطحات المناور'},
+ H1:{region:'haram',lic:false,name:'بدون ترخيص',desc:'بصب وبناء الدور … بدون ترخيص'},
+ H2:{region:'haram',lic:true,name:'محاور الأعمدة + المناور والبروز',desc:'تغيير محاور بعض الأعمدة وتقليل مسطحات المناور وزيادة البروز'},
+ H3:{region:'haram',lic:true,name:'عدم تنفيذ الردود + محاور الأعمدة',desc:'عدم تنفيذ الردود وتغيير محاور الأعمدة وتقليل المناور وزيادة البروز'}};
+const PAGE={report:0,stop:1,removal:2};
+const tplsOf=r=>Object.keys(TPLS).filter(k=>TPLS[k].region===r);
 
-/* [key,label,type,forms,required-forms,group] */
+/* violation words (used to pick the template automatically from speech) */
+const VIOL=[{k:'basement',l:'البدروم'},{k:'projections',l:'البروزات'},{k:'shafts',l:'المناور'},{k:'columns',l:'محاور الأعمدة'},{k:'extraFloor',l:'دور زائد'},
+ {k:'roof',l:'سقف'},{k:'height',l:'الارتفاع'},{k:'setback',l:'الردود'},{k:'facade',l:'الواجهات'},{k:'garage',l:'الجراج'},{k:'conv',l:'تحويل'}];
+function autoTpl(c){const r=c.region||'sahara',v=new Set(c.violations||[]);
+ if(c.licensed===false||v.has('extraFloor')||v.has('roof'))return r==='sahara'?'S1':'H1';
+ if(r==='sahara')return v.has('basement')?'S2':'S3';
+ return v.has('setback')?'H3':'H2'}
+const tplOf=c=>(c.tpl&&TPLS[c.tpl]&&TPLS[c.tpl].region===(c.region||'sahara'))?c.tpl:autoTpl(c);
+
+/* [key,label,type,group] — which ones appear on a page comes from LAYOUTS */
 const FIELDS=[
- ['plot','رقم القطعة','text','rsx','rsx','site'],
- ['street','الشارع','text','rsx','rsx','site'],
- ['area','المنطقة','text','sx','sx','site'],
- ['composed','العقار مكون من','text','s','','site'],
- ['inspDate','تاريخ المعاينة','date','rs','rs','insp'],
- ['inspHour','ساعة المعاينة','text','rs','rs','insp'],
- ['licNo','رقم الترخيص','text','rsx','rsx','lic'],
- ['licYear','سنة الترخيص','num','rx','rx','lic'],
- ['licDate','تاريخ الترخيص','date','sx','','lic'],
- ['licType','نوع الترخيص','text','x','','lic'],
- ['licWorks','الأعمال المرخص بها','text','sx','','lic'],
- ['execDate','تاريخ بدء التنفيذ','date','s','','lic'],
- ['ownerName','اسم المالك / المخالف','text','rsx','rsx','owner'],
- ['ownerNid','الرقم القومي','nid','rsx','rsx','owner'],
- ['capacity','صفة المخالف','text','r','','owner'],
- ['addrNo','عنوانه: عقار رقم','text','rx','','owner'],
- ['addrStreet','عنوانه: شارع','text','rx','','owner'],
- ['addrDistrict','عنوانه: حي','text','rx','','owner'],
- ['addrArea','عنوانه: منطقة / مدينة','text','rx','','owner'],
- ['addrGov','عنوانه: محافظة','text','rx','','owner'],
- ['engName','المهندس المشرف','text','sx','','eng'],
- ['engNid','رقمه القومي','nid','sx','','eng'],
- ['contrName','المقاول المنفذ','text','sx','','eng'],
- ['contrNid','رقمه القومي','nid','sx','','eng'],
- ['convFrom','التحويل من','text','rsx','','viol'],
- ['convTo','التحويل إلى','text','rsx','','viol'],
- ['floorFrom','من الدور','text','rsx','','viol'],
- ['floorTo','إلى الدور','text','rsx','','viol'],
- ['areaM2','المسطح (م٢)','num','rsx','r','viol'],
- ['lawArticles','المواد المخالفة من قانون البناء','text','r','','viol'],
- ['reportRegNo','رقم القيد بسجل المحاضر','text','r','r','reg'],
- ['reportRegDate','تاريخ القيد','date','r','r','reg'],
- ['stopRegNo','رقم القيد بسجل الإيقاف','text','s','s','reg'],
- ['stopRegDate','تاريخ القيد','date','s','s','reg'],
- ['removalRegNo','رقم القيد بسجل الإزالة','text','x','x','reg'],
- ['removalRegDate','تاريخ القيد','date','x','x','reg'],
- ['issueDate','تحريراً في','date','s','','reg'],
- ['stopNo','رقم قرار الإيقاف','text','rx','x','dec'],
- ['stopDate','تاريخ قرار الإيقاف','date','rx','x','dec'],
- ['announceDate','تاريخ الإعلان','date','x','','dec'],
- ['reportNo','رقم محضر المخالفة','text','x','x','dec'],
- ['reportDate','تاريخ المحضر','date','x','x','dec'],
- ['periodFrom','مدة الإزالة: من','date','x','x','dec'],
- ['periodTo','مدة الإزالة: إلى','date','x','x','dec']];
+ ['plot','رقم القطعة','text','site'],['street','الشارع','text','site'],['area','المنطقة / المدينة','text','site'],['composed','العقار مكون من','text','site'],
+ ['inspDate','تاريخ المعاينة','date','insp'],['inspHour','ساعة المعاينة','text','insp'],
+ ['licNo','رقم الترخيص','text','lic'],['licYear','سنة الترخيص','num','lic'],['licDate','تاريخ الترخيص','date','lic'],['licType','نوع الترخيص','text','lic'],
+ ['licWorks','الأعمال المرخص بها','text','lic'],['execDate','تاريخ بدء التنفيذ','date','lic'],
+ ['ownerName','اسم المالك / المخالف','text','owner'],['ownerNid','الرقم القومي','nid','owner'],['capacity','صفة المخالف','text','owner'],
+ ['addrNo','عنوانه: عقار رقم','text','owner'],['addrStreet','عنوانه: شارع','text','owner'],['addrDistrict','عنوانه: حي','text','owner'],
+ ['addrArea','عنوانه: منطقة / مدينة','text','owner'],['addrGov','عنوانه: محافظة','text','owner'],
+ ['engName','المهندس المشرف','text','eng'],['engNid','رقمه القومي','nid','eng'],['contrName','المقاول المنفذ','text','eng'],['contrNid','رقمه القومي','nid','eng'],
+ ['floorOne','الدور','text','viol'],['floorFrom','من الدور','text','viol'],['floorTo','إلى الدور','text','viol'],
+ ['areaB','مسطح البدروم (م٢)','num','viol'],['areaM2','المسطح (م٢)','num','viol'],['lawArticles','المواد المخالفة من قانون البناء','text','viol'],
+ ['reportRegNo','رقم القيد بسجل المحاضر','text','reg'],['reportRegDate','تاريخ القيد','date','reg'],
+ ['stopRegNo','رقم القيد بسجل الإيقاف','text','reg'],['stopRegDate','تاريخ القيد','date','reg'],
+ ['removalRegNo','رقم القيد بسجل الإزالة','text','reg'],['removalRegDate','تاريخ القيد','date','reg'],['issueDate','تحريراً في','date','reg'],
+ ['stopNo','رقم قرار الإيقاف','text','dec'],['stopDate','تاريخ قرار الإيقاف','date','dec'],['announceDate','تاريخ الإعلان','date','dec'],
+ ['reportNo','رقم محضر المخالفة','text','dec'],['reportDate','تاريخ المحضر','date','dec'],
+ ['periodFrom','مدة الإزالة: من','date','dec'],['periodTo','مدة الإزالة: إلى','date','dec']];
 const FMAP=Object.fromEntries(FIELDS.map(f=>[f[0],f]));
 const GROUPS={site:'📍 موقع المخالفة',insp:'🔎 المعاينة',lic:'📄 الترخيص',owner:'👤 المالك / المخالف',eng:'👷 المهندس والمقاول',viol:'⚠️ الأعمال المخالفة',reg:'🗂️ بيانات القيد بالسجل',dec:'⚖️ القرارات المرتبطة'};
+const REQ=new Set(['plot','street','ownerName','ownerNid','inspDate','inspHour','licNo','licYear','floorOne','floorFrom','floorTo','areaB','areaM2',
+ 'reportRegNo','reportRegDate','stopRegNo','stopRegDate','removalRegNo','removalRegDate','stopNo','stopDate','reportNo','reportDate','periodFrom','periodTo']);
 
 const jobS=()=>String(S.jobSuffix||'').replace(/^\s*(ال)?مهندس\s*/,'').trim();
-const DEF_SET={inspector:'',jobSuffix:'مدني',responsible:'',tanzeem:'',gm:'',legal:'',employee:'',price:'',defArea:'صحراء الأهرام',defStreet:'التقسيم',font:'plex',ink:'#111111',slash:true,autoMic:true,pause:'mid'};
+const EMPTY='∅'; // answered: leave blank
+const isBlank=v=>{const x=String(v??'').trim();return !x||x===EMPTY};
+const DEF_SET={inspector:'',jobSuffix:'مدني',responsible:'',tanzeem:'',gm:'',legal:'',employee:'',price:'',font:'plex',ink:'#111111',autoMic:true,pause:'mid',region:'sahara'};
 let S={...DEF_SET};
 let CASES=[];
 let cur=null; // {form, c}
 let screen='home';
 
-function newCase(){const t=today();return{id:uid(),created:Date.now(),updated:Date.now(),licensed:true,violations:[],violCustom:'',
- area:S.defArea||'صحراء الأهرام',capacity:'مالك',addrGov:'الجيزة',inspDate:t,inspHour:nowHour(),
- reportRegDate:t,stopRegDate:t,removalRegDate:t,issueDate:t,stopDate:'',reportDate:'',periodFrom:t,periodTo:addDays(t,15),paraOv:{},done:{}}}
+function newCase(){const t=today();return{id:uid(),created:Date.now(),updated:Date.now(),licensed:true,violations:[],
+ region:S.region||'sahara',tpl:'',area:'',capacity:'مالك',addrGov:'الجيزة',inspDate:t,inspHour:nowHour(),
+ reportRegDate:t,stopRegDate:t,removalRegDate:t,issueDate:t,stopDate:'',reportDate:'',periodFrom:t,periodTo:addDays(t,15),done:{}}}
 
 function nextReg(key){let m=0;for(const c of CASES){const v=num(c[key]);if(v>m)m=v}return m?String(m+1):''}
-function fieldsFor(form){const k=FK[form];return FIELDS.filter(f=>f[3].includes(k))}
-function isReq(f,form,c){if(!f[4].includes(FK[form]))return false;if(['licNo','licYear'].includes(f[0])&&c.licensed===false)return false;if(f[0]==='areaM2'&&!S.price)return false;return true}
-function missing(form,c){const m=fieldsFor(form).filter(f=>isReq(f,form,c)&&!String(c[f[0]]??'').trim());
- if(!(c.violations||[]).length&&!String(c.violCustom||'').trim())m.push(['__viol','نوع المخالفة','viol','rsx','rsx','viol']);
- if((c.violations||[]).includes('conv')){for(const k of['convFrom','convTo'])if(!c[k]&&!m.find(x=>x[0]===k))m.push(FMAP[k])}
- return m}
-function emptyOpt(form,c){const req=new Set(missing(form,c).map(f=>f[0]));
- return fieldsFor(form).filter(f=>!req.has(f[0])&&!String(c[f[0]]??'').trim()&&!(c.licensed===false&&f[5]==='lic')&&!(['convFrom','convTo'].includes(f[0])&&!(c.violations||[]).includes('conv')))}
-function cost(c){const p=num(S.price),a=num(c.areaM2);return p&&a?Math.round(p*a):0}
+/* fields shown/asked for this form = the blanks that exist on the chosen template page */
+function fieldsFor(form,c){c=c||cur.c;const keys=new Set((LAYOUTS[tplOf(c)][form]||[]).map(b=>b.k));return FIELDS.filter(f=>keys.has(f[0]))}
+function isReq(f,form,c){if(!REQ.has(f[0]))return false;if(f[0]==='street'&&(c.region||'sahara')==='sahara')return false;
+ if(['areaM2','areaB'].includes(f[0])&&!S.price&&form!=='report')return true;return true}
+const hasVal=(k,c)=>{const h=x=>String(c[x]??'').trim()!=='';if(k==='floorOne')return h('floorOne')||h('floorFrom');if(k==='floorFrom')return h('floorFrom')||h('floorOne');return h(k)};
+function missing(form,c){return fieldsFor(form,c).filter(f=>isReq(f,form,c)&&!hasVal(f[0],c))}
+function emptyOpt(form,c){const req=new Set(missing(form,c).map(f=>f[0]));return fieldsFor(form,c).filter(f=>!req.has(f[0])&&!hasVal(f[0],c))}
+const costOf=a=>{const p=num(S.price),x=num(a);return p&&x?Math.round(p*x):0};
+function cost(c){return costOf(c.areaM2)}
+function costText(k,wide){if(!k)return'';const n=toAr(k.toLocaleString('en-US').replace(/,/g,'٬'));return wide?`${n} جنيهاً (${numWords(k)} جنيهاً فقط لا غير)`:`${n} جنيهاً`}
 
-/* compose the violation narrative */
-function stripDor(s){return String(s||'').trim().replace(/^الدور\s+/,'')}
-function compose(form,c){
- if(c.paraOv&&c.paraOv[form])return c.paraOv[form];
- c={...c};for(const k in c)if(c[k]==='/')c[k]='';
- const items=(c.violations||[]).map(k=>VIOL.find(v=>v.k===k)).filter(Boolean).map(v=>v.t.replace('{convFrom}',c.convFrom||'....').replace('{convTo}',c.convTo||'....'));
- const cu=String(c.violCustom||'').trim();if(cu)items.push(cu.replace(/^ب/,''));
- const body=items.length?'ب'+items.join(' و'):'';
- const lic=c.licensed!==false;
- const licTxt=`الرسومات الهندسية للترخيص رقم ${c.licNo||'....'}${c.licYear?' لسنة '+c.licYear:''}`;
- const ff=stripDor(c.floorFrom),ft=stripDor(c.floorTo);
- let fl='';if(ff&&ft&&ff!==ft)fl=` وذلك من الدور ${ff} إلى الدور ${ft}`;else if(ff||ft)fl=` وذلك بالدور ${ff||ft}`;
- const ar=c.areaM2?` وبمسطح حوالي ${c.areaM2} م٢`:'';
- const law='قانون البناء رقم ١١٩ لسنة ٢٠٠٨ ولائحته التنفيذية';
- let s;
- if(form==='stop'){
-  s=(lic?licTxt:'قانون البناء رقم ١١٩ لسنة ٢٠٠٨ بالبناء بدون ترخيص')+(body?' وذلك '+body:'')+fl+ar+' وذلك يستوجب إيقاف العمل.';
- }else{
-  s=(lic?'قام المخالف بمخالفة '+licTxt+(body?' وذلك '+body:''):'قام المخالف بالبناء بدون ترخيص'+(body?' و'+body.replace(/^ب/,'ب'):''))+fl+ar;
-  if(form==='report'){const k=cost(c);if(k)s+=` وبتكلفة إجمالية حوالي ${k.toLocaleString('en-US').replace(/,/g,'٬')} جنيهاً (${numWords(k)} جنيهاً فقط لا غير)`;s+=' وذلك مخالفاً ل'+law+'.'}
-  else s+=' وذلك مخالفاً ل'+law+'، مما يستوجب إزالة الأعمال وما يستجد من أعمال.';
- }
- return toAr(s.replace(/\s+/g,' '));
-}
+/* value printed for a layout key */
+function valueFor(k,c,box){
+ const v=c[k];
+ switch(k){
+  case 'employee':return S.employee;case 'inspector':case 'S_inspector':return S.inspector;case 'S_tanzeem':return S.tanzeem;
+  case 'S_responsible':return S.responsible;case 'S_gm':return S.gm;case 'S_legal':return S.legal;
+  case 'jobSuffix':return jobS();case 'jobFull':return ('مهندس '+jobS()).trim();
+  case 'cost':{const k2=cost(c);return k2?costText(k2,box.x1-box.x0>200):''}
+  case 'costB':{const k2=costOf(c.areaB);return k2?costText(k2,box.x1-box.x0>200):''}
+  case 'floorOne':{if(!isBlank(v))return v;const a=c.floorFrom,b=c.floorTo;if(isBlank(a))return v;return(!isBlank(b)&&b!==a)?`${a} حتى ${b}`:a}
+  case 'floorFrom':return isBlank(v)&&!isBlank(c.floorOne)?c.floorOne:v;
+  case 'areaM2':case 'areaB':return isBlank(v)?v:`${v} م٢`;
+  default:return(box.kind==='date')?fmtDate(v):v}}
 
-/* ============ PDF layouts (coords on 1066×1600 template) ============ */
-const seg=(y,x1,x2)=>({x:x2-4,cx:(x1+x2)/2,y:y-5,w:x2-x1-10});
-/* date box: x-range + label baseline */
-const cov=(x1,x2,b)=>({cover:[x1,b-22,x2,b+12],b});
-const L={
- report:{img:'tpl/report.jpg',items:[
-  [seg(154,114,224),c=>c.reportRegNo],[cov(116,302,182),c=>fmtDate(c.reportRegDate)],[seg(214,124,241),()=>S.employee],
-  [cov(676,838,314),c=>fmtDate(c.inspDate)],[seg(318,150,294),c=>c.inspHour],[seg(360,395,750),()=>S.inspector],
-  [{x:224,y:354,w:100,noSlash:true},()=>jobS()],
-  [seg(403,409,511),c=>c.licensed===false?'بدون':c.licNo],[seg(403,246,355),c=>c.licensed===false?'':c.licYear],
-  [seg(447,513,902),c=>c.ownerName],[seg(447,155,408),c=>c.ownerNid],[seg(491,682,753),c=>c.capacity],
-  [seg(577,765,875),c=>c.addrNo],[seg(577,118,620),c=>c.addrStreet],[seg(620,764,928),c=>c.addrDistrict],[seg(620,403,579),c=>c.addrArea],[seg(620,120,280),c=>c.addrGov],
-  [seg(708,642,870),c=>c.plot],[seg(708,126,536),c=>c.street],
-  [{para:[96,1058,966,1176]},c=>compose('report',c)],
-  [seg(1194,337,470),c=>c.lawArticles],[seg(1221,306,401),c=>c.stopNo],[cov(104,227,1220),c=>fmtDate(c.stopDate)],
-  [seg(1430,673,901),()=>S.inspector],[seg(1430,289,520),()=>S.tanzeem]]},
- stop:{img:'tpl/stop.jpg',items:[
-  [seg(156,130,240),c=>c.stopRegNo],[cov(124,292,184),c=>fmtDate(c.stopRegDate)],[seg(215,135,252),()=>S.employee],
-  [cov(686,851,338),c=>fmtDate(c.inspDate)],[seg(340,239,382),c=>c.inspHour],
-  [seg(385,471,749),()=>S.inspector],[seg(385,257,388),()=>('مهندس '+jobS()).trim()],
-  [{para:[112,446,964,522]},c=>compose('stop',c)],
-  [seg(578,793,880),c=>c.plot],[seg(578,407,730),c=>c.street],[seg(616,697,895),c=>c.area],[seg(655,143,877),c=>c.composed],
-  [seg(731,727,853),c=>c.licensed===false?'بدون ترخيص':c.licNo],[cov(394,562,730),c=>fmtDate(c.licDate)],[cov(116,249,731),c=>fmtDate(c.execDate)],
-  [seg(770,141,814),c=>c.licWorks],
-  [seg(847,466,755),c=>c.ownerName],[seg(847,148,383),c=>c.ownerNid],
-  [seg(924,466,845),c=>c.engName],[seg(924,148,383),c=>c.engNid],
-  [seg(1001,468,817),c=>c.contrName],[seg(1001,156,391),c=>c.contrNid],
-  [seg(1340,700,880),()=>S.responsible],[seg(1341,417,626),()=>S.tanzeem],[seg(1341,120,330),()=>S.gm],
-  [cov(772,894,1407),c=>fmtDate(c.issueDate)]]},
- removal:{img:'tpl/removal.jpg',items:[
-  [seg(164,146,254),c=>c.removalRegNo],[cov(138,322,191),c=>fmtDate(c.removalRegDate)],[seg(224,191,307),()=>S.employee],
-  [seg(335,733,891),c=>c.plot],[seg(335,118,681),c=>c.street],[seg(369,361,496),c=>c.area],
-  [seg(439,750,883),c=>c.licensed===false?'بدون ترخيص':c.licNo],[cov(464,666,440),c=>fmtDate(c.licDate)],[seg(439,117,366),c=>c.licType],
-  [seg(473,121,837),c=>c.licWorks],
-  [seg(543,469,906),c=>c.ownerName],[seg(543,127,406),c=>c.ownerNid],
-  [seg(576,656,845),c=>c.addrNo],[seg(576,128,588),c=>c.addrStreet],[seg(611,766,929),c=>c.addrDistrict],[seg(611,466,619),c=>c.addrArea],[seg(611,128,348),c=>c.addrGov],
-  [seg(681,533,880),c=>c.engName],[seg(681,131,448),c=>c.engNid],[seg(750,531,843),c=>c.contrName],[seg(750,129,442),c=>c.contrNid],
-  [{para:[134,800,531,950]},c=>compose('removal',c)],
-  [seg(975,730,858),c=>c.stopNo],[cov(454,642,975),c=>fmtDate(c.stopDate)],[seg(975,125,383),c=>fmtDate(c.announceDate)],
-  [seg(1009,709,837),c=>c.reportNo],[cov(434,634,1009),c=>fmtDate(c.reportDate)],
-  [cov(424,634,1092),c=>fmtDate(c.periodFrom)],[cov(184,402,1092),c=>fmtDate(c.periodTo)],
-  [seg(1294,771,912),()=>S.responsible],[seg(1294,548,689),()=>S.tanzeem],[seg(1294,332,472),()=>S.gm],[seg(1294,127,280),()=>S.legal]]}};
-
+/* ============ PDF rendering on the real template pages ============ */
 const PFONTS={plex:['Plex','آي بي إم بلكس (افتراضي)'],nsans:['NSans','نوتو سانس'],cairo:['Cairo','القاهرة'],tajawal:['Tajawal','تجوال'],amiri:['Amiri','أميري (نسخ كلاسيكي)'],naskh:['Naskh','نوتو نسخ']};
 const INKS={'#111111':'أسود','#0b2563':'أزرق غامق'};
 let INK='#111111',FONT='"Plex", "Cairo", sans-serif';
 function applyPrintStyle(){const f=PFONTS[S.font]||PFONTS.plex;FONT=`"${f[0]}", "Cairo", sans-serif`;INK=INKS[S.ink]?S.ink:'#111111'}
-const imgCache={};
+const imgCache={},pdfCache={};
 function loadImg(src){return imgCache[src]||(imgCache[src]=new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=src}))}
-function fitText(ctx,t,x,y,w,size=22,min=11,align='right'){t=toAr(t);ctx.textAlign=align;let s=size;ctx.font=`700 ${s}px ${FONT}`;while(ctx.measureText(t).width>w&&s>min){s-=.5;ctx.font=`700 ${s}px ${FONT}`}ctx.fillText(t,x,y);ctx.textAlign='right'}
-function wrap(ctx,t,w){const words=t.split(/\s+/),lines=[];let l='';for(const wd of words){const tr=l?l+' '+wd:wd;if(ctx.measureText(tr).width>w&&l){lines.push(l);l=wd}else l=tr}if(l)lines.push(l);return lines}
-function drawPara(ctx,t,[x1,y1,x2,y2]){ctx.fillStyle='#fff';ctx.fillRect(x1,y1,x2-x1,y2-y1);ctx.fillStyle=INK;
- const W=x2-x1-8,H=y2-y1-4;let s=20,lines,lh;for(;s>=10;s-=.5){ctx.font=`700 ${s}px ${FONT}`;lh=s*1.62;lines=wrap(ctx,t,W);if(lines.length*lh<=H)break}
- lines.forEach((ln,i)=>{const yy=y1+4+lh*i+s*1.15;
-  if(i<lines.length-1){const ws=ln.split(' ');const tw=ws.reduce((a,w)=>a+ctx.measureText(w).width,0);const gap=ws.length>1?(W-tw)/(ws.length-1):0;
-   if(gap<s*1.6&&ws.length>2){let x=x2-4;for(const wd of ws){ctx.fillText(wd,x,yy);x-=ctx.measureText(wd).width+gap}return}}
-  ctx.fillText(ln,x2-4,yy)})}
-function drawSketch(ctx,kind,c){
- const plot=toAr(c.plot||''),st=c.street?'شارع '+c.street:'';
- if(kind==='report'){ctx.textAlign='center';let fs=30;ctx.font=`700 ${fs}px ${FONT}`;while(ctx.measureText(plot).width>118&&fs>12){fs-=1;ctx.font=`700 ${fs}px ${FONT}`}ctx.fillText(plot,490,906);
-  if(c.street&&!/التقسيم/.test(c.street)){ctx.fillStyle='#fff';ctx.fillRect(345,941,300,35);ctx.fillStyle=INK;fs=20;ctx.font=`700 ${fs}px ${FONT}`;const t=toAr(st);while(ctx.measureText(t).width>290&&fs>11){fs-=1;ctx.font=`700 ${fs}px ${FONT}`}ctx.fillText(t,495,966)}ctx.textAlign='right'}
- else{ctx.strokeStyle=INK;ctx.lineWidth=2;ctx.strokeRect(625,815,120,64);ctx.beginPath();ctx.moveTo(575,890);ctx.lineTo(800,890);ctx.moveTo(575,930);ctx.lineTo(800,930);ctx.stroke();
-  ctx.textAlign='center';ctx.font=`700 26px ${FONT}`;ctx.fillText(plot,685,858);ctx.font=`700 18px ${FONT}`;ctx.fillText(toAr(st||'شارع'),688,918);ctx.textAlign='right'}}
-async function renderForm(form,c,scale=2.2){
- applyPrintStyle();await document.fonts.load(`700 20px ${FONT}`,'أبجد ٠١٢ /');await document.fonts.ready;
- const lay=L[form],img=await loadImg(lay.img);const cv=document.createElement('canvas');cv.width=Math.round(1066*scale);cv.height=Math.round(1600*scale);
+function loadPdf(t){return pdfCache[t]||(pdfCache[t]=fetch(`tpl/${t}.pdf`).then(r=>{if(!r.ok)throw new Error('template '+t);return r.arrayBuffer()}))}
+const PW=595.32,PH=841.92, FS=11.5; // page size and base text size (points)
+function fitText(ctx,t,x,y,w,size=FS,min=6.5,align='center'){t=toAr(t);ctx.textAlign=align;let s=size;ctx.font=`700 ${s}px ${FONT}`;while(ctx.measureText(t).width>w&&s>min){s-=.25;ctx.font=`700 ${s}px ${FONT}`}ctx.fillText(t,x,y)}
+/* transparent overlay (in points × scale) holding everything we write on the page */
+async function drawOverlay(ctx,form,c,covers){ /* covers: array to collect white-out boxes instead of painting them (PDF draws them as vector) */
+ const lay=LAYOUTS[tplOf(c)][form];const slash=(c.region||'sahara')==='sahara';
+ ctx.direction='rtl';ctx.textBaseline='alphabetic';
+ for(const b of lay){
+  let v=valueFor(b.k,c,b);if(v===EMPTY)v='';v=v==null?'':String(v).trim();
+  const w=b.x1-b.x0,cx=(b.x0+b.x1)/2;
+  if(b.kind==='date'){if(!v)continue;const box=[b.x0,b.y-12.5,w,16.5];if(covers)covers.push(box);else{ctx.fillStyle='#fff';ctx.fillRect(...box)}ctx.fillStyle=INK;fitText(ctx,v,cx,b.y,w-2);continue}
+  ctx.fillStyle=INK;
+  if(b.kind==='after'){if(v)fitText(ctx,v,b.x1,b.y,w,FS,6.5,'right');continue}
+  const y=b.kind==='dots'?b.y-1.2:b.y;
+  if(v)fitText(ctx,v,cx,y,w-2);else if(slash&&!b.k.startsWith('S_')&&b.k!=='employee')fitText(ctx,'/',cx,y,20)}}
+async function renderForm(form,c,scale=2){ /* preview: background image + overlay */
+ applyPrintStyle();await document.fonts.load(`700 12px ${FONT}`,'أبجد ٠١٢ /');await document.fonts.ready;
+ const t=tplOf(c),img=await loadImg(`tpl/${t}-${form}.jpg`);
+ const cv=document.createElement('canvas');cv.width=Math.round(PW*scale);cv.height=Math.round(PH*scale);
  const ctx=cv.getContext('2d');ctx.imageSmoothingQuality='high';ctx.drawImage(img,0,0,cv.width,cv.height);ctx.scale(scale,scale);
- ctx.direction='rtl';ctx.textAlign='right';ctx.textBaseline='alphabetic';ctx.fillStyle=INK;
- for(const[sp,fn]of lay.items){
-  if(sp.sketch){drawSketch(ctx,sp.sketch,c);continue}
-  const v=fn(c);
-  if(sp.para){drawPara(ctx,String(v||''),sp.para);continue}
-  if(sp.cover){if(!v)continue;const[x1,y1,x2,y2]=sp.cover;ctx.fillStyle='#fff';ctx.fillRect(x1,y1,x2-x1,y2-y1);ctx.fillStyle=INK;fitText(ctx,v,(x1+x2)/2,sp.b,x2-x1-8,21,11,'center');continue}
-  const cx=sp.cx??(sp.x-sp.w/2);
-  if(v&&String(v).trim())fitText(ctx,v,sp.noSlash?sp.x:cx,sp.y,sp.w,22,11,sp.noSlash?'right':'center');else if(S.slash!==false&&!sp.noSlash)fitText(ctx,'/',cx,sp.y,40,22,11,'center')}
- return cv}
-async function makePdf(form,c){const cv=await renderForm(form,c);const{jsPDF}=window.jspdf;const pdf=new jsPDF({unit:'pt',format:'a4',compress:true});
- pdf.addImage(cv.toDataURL('image/jpeg',0.9),'JPEG',0,0,595.28,841.89);return{blob:pdf.output('blob'),cv}}
+ await drawOverlay(ctx,form,c);return cv}
+async function makePdf(form,c){ /* final: the original vector page + a transparent text layer on top */
+ applyPrintStyle();await document.fonts.load(`700 12px ${FONT}`,'أبجد ٠١٢ /');await document.fonts.ready;
+ const t=tplOf(c),bytes=await loadPdf(t);const{PDFDocument}=window.PDFLib;
+ const src=await PDFDocument.load(bytes.slice(0));const out=await PDFDocument.create();
+ const[pg]=await out.copyPages(src,[PAGE[form]]);out.addPage(pg);
+ const sc=3.2,ov=document.createElement('canvas');ov.width=Math.round(PW*sc);ov.height=Math.round(PH*sc);
+ const ctx=ov.getContext('2d');ctx.scale(sc,sc);const covers=[];await drawOverlay(ctx,form,c,covers);
+ const png=await out.embedPng(await new Promise(r=>ov.toBlob(b=>b.arrayBuffer().then(r),'image/png')));
+ const{width,height}=pg.getSize();const k=height/PH;
+ for(const[x,y,w,h]of covers)pg.drawRectangle({x:x*k,y:height-(y+h)*k,width:w*k,height:h*k,color:window.PDFLib.rgb(1,1,1),borderWidth:0});
+ pg.drawImage(png,{x:0,y:0,width,height});
+ out.setTitle(FORMS[form].name);
+ const blob=new Blob([await out.save()],{type:'application/pdf'});
+ return{blob,cv:await renderForm(form,c)}}
 
-const APP_VERSION='1.1.0';
+const APP_VERSION='2.0.0';
 
 /* ============ storage ============ */
 async function loadAll(){
@@ -262,9 +199,10 @@ function listenField(owner,key,{show,done,state}){
 /* ============ understanding (on-device) ============ */
 function applyParse(text,c,form){
  const r=VParser.parseTranscript(text,form,today());let n=0;
- for(const[k,v]of Object.entries(r.values)){if(k==='violCustom'){c.violCustom=c.violCustom?c.violCustom+' و'+v:v;n++;continue}if(FMAP[k]&&v){c[k]=v;n++}}
+ for(const[k,v]of Object.entries(r.values)){if(FMAP[k]&&v){c[k]=v;n++}}
  if(r.violations.length){c.violations=[...new Set([...(c.violations||[]),...r.violations])];n+=r.violations.length}
  if(r.licensed!==undefined)c.licensed=r.licensed;
+ if(r.values.area){if(/صحرا/.test(r.values.area)){setRegion(c,'sahara')}else setRegion(c,'haram')}
  return n}
 const normalizeField=(key,text)=>VParser.normalizeValue(key,text,today())||text.trim();
 
@@ -274,21 +212,37 @@ function render(){({home:vHome,capture:vCapture,guided:vGuided,missing:vMissing,
 const setupNeeded=()=>!S.inspector||!S.tanzeem;
 
 let DRAFT=null;
+const regionHint=r=>r==='haram'?'الخانات اللي ما تتملاش هتفضل فاضية':'الخانات اللي ما تتملاش هيتكتب فيها ( / )';
+function regionToggle(r,id){return `<div class="card" style="padding:12px"><div class="row" style="justify-content:space-between;margin-bottom:8px"><b style="color:var(--pri)">📍 المنطقة</b><small style="color:var(--mute)">${regionHint(r)}</small></div>
+ <div class="sw" id="${id}" style="margin:0">${Object.entries(REGIONS).map(([k,l])=>`<button class="btn ${r===k?'':'sec'}" data-reg="${k}" type="button">${l}</button>`).join('')}</div></div>`}
+function setRegion(c,r){c.region=r;if(c.tpl&&TPLS[c.tpl].region!==r)c.tpl='';if(r==='sahara'&&!isBlank(c.area)&&/صحرا/.test(c.area))c.area='';
+ for(const f of FIELDS){if(r==='haram'&&c[f[0]]==='/')c[f[0]]=EMPTY;if(r==='sahara'&&c[f[0]]===EMPTY)c[f[0]]='/'}}
+/* region + template chooser (shown on capture & review) */
+function tplPicker(c,id){const r=c.region||'sahara',t=tplOf(c);
+ return `<div class="card" id="${id}" style="padding:12px">
+ <div class="sw" style="margin:0 0 10px">${Object.entries(REGIONS).map(([k,l])=>`<button class="btn ${r===k?'':'sec'}" data-reg="${k}" type="button">📍 ${l}</button>`).join('')}</div>
+ <div class="row" style="justify-content:space-between;margin-bottom:6px"><b style="color:var(--pri);font-size:14px">النموذج</b><small style="color:var(--mute)">${c.tpl?'اختيارك':'متختار تلقائي من كلامك'}</small></div>
+ <div style="display:grid;gap:6px">${tplsOf(r).map(k=>`<button class="tplopt ${k===t?'on':''}" data-tpl="${k}" type="button"><b>${TPLS[k].name}</b><small>${TPLS[k].desc}</small></button>`).join('')}</div>
+ <div class="hint" style="text-align:right;margin-top:6px;font-size:12px">${regionHint(r)}</div></div>`}
+function bindTplPicker(root,c,after){root.querySelectorAll('[data-reg]').forEach(b=>b.onclick=()=>{setRegion(c,b.dataset.reg);S.region=b.dataset.reg;saveSettings();after()});
+ root.querySelectorAll('[data-tpl]').forEach(b=>b.onclick=()=>{c.tpl=b.dataset.tpl;c.licensed=TPLS[c.tpl].lic;after()})}
 function vHome(a){
  a.innerHTML=`<header class="top"><h1>مخالفات حي الهرم<span class="sub">إدارة التنظيم — ملء النماذج بالصوت</span></h1>
  <button class="iconbtn" id="bCases" title="القضايا">🗂️</button><button class="iconbtn" id="bSet" title="الإعدادات">⚙️</button></header>
  ${setupNeeded()?`<div class="warn">⚙️ أول مرة؟ ادخل <b>الإعدادات</b> واكتب أسماء الموظفين وسعر المتر مرة واحدة، وهتتملى تلقائي في كل نموذج. <button class="btn ghost" id="bSet2" style="width:auto;display:inline">افتح الإعدادات</button></div>`:''}
  ${DRAFT&&DRAFT.c?`<div class="warn">📝 فيه ${FORMS[DRAFT.form].short} ما خلصش${DRAFT.c.ownerName?' — '+esc(DRAFT.c.ownerName):''}. <button class="btn ghost" id="resume" style="width:auto;display:inline">كمّل</button> <button class="btn ghost" id="drop" style="width:auto;display:inline;color:var(--mute)">تجاهل</button></div>`:''}
+ ${regionToggle(S.region||'sahara','hreg')}
  <div class="hint" style="text-align:right;margin:0 2px 10px">هتعمل إيه النهارده؟</div>
  ${Object.entries(FORMS).map(([k,f])=>`<button class="bigbtn" data-f="${k}"><span class="ic" style="background:${f.col}">${f.ic}</span><span><b>${f.name}</b><small>${f.reg}</small></span></button>`).join('')}
  <button class="bigbtn" id="bCases2"><span class="ic" style="background:#5b6b82">🔍</span><span><b>القضايا المحفوظة</b><small>${toAr(CASES.length)} قضية — دور بالاسم أو الرقم القومي أو العنوان</small></span></button>`;
  a.querySelectorAll('[data-f]').forEach(b=>b.onclick=()=>startForm(b.dataset.f));
+ a.querySelectorAll('#hreg [data-reg]').forEach(b=>b.onclick=()=>{S.region=b.dataset.reg;saveSettings();render()});
  $('#bCases').onclick=$('#bCases2').onclick=()=>go('cases');$('#bSet').onclick=()=>go('settings');if($('#bSet2'))$('#bSet2').onclick=()=>go('settings');
  if($('#resume'))$('#resume').onclick=()=>{cur={form:DRAFT.form,c:DRAFT.c,transcript:DRAFT.transcript||''};DRAFT=null;go('review')};
  if($('#drop'))$('#drop').onclick=()=>{DRAFT=null;clearDraft();render()}}
 
 function startForm(form,c){
- c=c||newCase();cur={form,c,transcript:''};DRAFT=null;
+ c=c||newCase();if(!c.region)c.region=S.region||'sahara';cur={form,c,transcript:''};DRAFT=null;
  const regK=form+'RegNo';if(!c[regK])c[regK]=nextReg(regK);
  const done=c.done||{};
  if(form==='removal'){if(!c.reportNo&&done.report){c.reportNo=c.reportRegNo;c.reportDate=c.reportDate||c.reportRegDate}
@@ -300,6 +254,7 @@ const KW_HINT=['قطعة','شارع','المالك','الرقم القومي','�
 let liveTxt='';
 function vCapture(a){const f=FORMS[cur.form];const on=micOwner==='cap';
  a.innerHTML=`<header class="top"><button class="iconbtn" id="back">→</button><h1>${f.name}<span class="sub">قول اسم الخانة وبعدها قيمتها</span></h1></header>
+ ${tplPicker(cur.c,'ctpl')}
  <div class="micwrap"><button class="mic ${on?'live':''}" id="mic">${on?'■':'🎤'}</button></div>
  <div class="hint">${on?'بيسمعك… اضغط تاني لما تخلص':'اضغط وابدأ الكلام'}</div>
  <div class="card" style="margin-top:14px"><h3>اللي اتقال</h3>
@@ -309,6 +264,7 @@ function vCapture(a){const f=FORMS[cur.form];const on=micOwner==='cap';
  <div class="hint" style="text-align:right;margin-top:8px">المخالفات بيلقطها من الكلام لوحده (الدروم، البروزات، المناور، الأعمدة، دور زايد، سقف، الجراج…).</div></details>
  <div class="bar"><div class="in"><button class="btn sec" id="guide" style="flex:1">خانة خانة</button><button class="btn" id="go" style="flex:2">وزّع البيانات ←</button></div></div>`;
  const tr=$('#tr');tr.oninput=()=>cur.transcript=tr.value;
+ bindTplPicker($('#ctpl'),cur.c,()=>keepScroll(render));
  $('#back').onclick=()=>go('home');
  $('#mic').onclick=()=>{listen('cap',{partial:t=>{liveTxt=t;const l=$('#live');if(l)l.textContent=t},
   final:t=>{liveTxt='';cur.transcript=(cur.transcript+' '+t).trim();const x=$('#tr');if(x)x.value=cur.transcript;const l=$('#live');if(l)l.textContent='';saveDraft()},
@@ -321,23 +277,21 @@ function vCapture(a){const f=FORMS[cur.form];const on=micOwner==='cap';
 
 /* ---- guided: one field at a time ---- */
 let gIdx=0;
-function guidedList(){const c=cur.c;return fieldsFor(cur.form).filter(f=>!(c.licensed===false&&f[5]==='lic')&&!(['convFrom','convTo'].includes(f[0])&&!(c.violations||[]).includes('conv')))}
+function guidedList(){return fieldsFor(cur.form)}
 function vGuided(a){const list=guidedList();const c=cur.c;
  if(gIdx>=list.length){go('review');return}
  const f=list[gIdx];const k=f[0];const on=micOwner==='g';
  const showV=v=>f[2]==='date'?fmtDate(v):toAr(v);
  a.innerHTML=`<header class="top"><button class="iconbtn" id="back">→</button><h1>خانة خانة<span class="sub">${FORMS[cur.form].short} — ${toAr(gIdx+1)} من ${toAr(list.length)}</span></h1><button class="iconbtn" id="fin" title="خلصت">✓</button></header>
  <div class="prog"><i style="width:${Math.round(gIdx/list.length*100)}%"></i></div>
- <div class="card"><div class="guide-n">${GROUPS[f[5]]}</div><div class="guide-f">${f[1]}</div>
+ <div class="card"><div class="guide-n">${GROUPS[f[3]]}</div><div class="guide-f">${f[1]}</div>
  <div class="micwrap"><button class="mic small ${on?'live':''}" id="mic">${on?'■':'🎤'}</button></div>
  <div class="live-t" id="live" style="text-align:center"></div>
- <input id="gv" class="guide-v" ${f[2]==='date'&&c[k]!=='/'?'type="date"':''} ${f[2]==='nid'||f[2]==='num'?'inputmode="numeric"':''} value="${esc(c[k]??'')}" placeholder="قول أو اكتب">
+ <input id="gv" class="guide-v" ${f[2]==='date'&&c[k]!=='/'?'type="date"':''} ${f[2]==='nid'||f[2]==='num'?'inputmode="numeric"':''} value="${esc(c[k]===EMPTY?'':c[k]??'')}" placeholder="${c[k]===EMPTY?'فاضية':'قول أو اكتب'}">
  ${c[k]&&f[2]!=='date'?`<div class="hint" style="margin-top:6px">${esc(showV(c[k]))}</div>`:''}
  <div class="actions"><button class="btn sec" id="prev">→ السابق</button><button class="btn" id="next">التالي ←</button>
- <button class="btn sec" id="na">مش موجود ( / )</button><button class="btn sec" id="skip">تخطي</button></div></div>
- ${k==='areaM2'||k==='floorFrom'?`<div class="card"><h3>نوع المخالفة</h3>${chipsHtml(c)}</div>`:''}
+ <button class="btn sec" id="na">${c.region==='haram'?'فاضية':'مش موجود ( / )'}</button><button class="btn sec" id="skip">تخطي</button></div></div>
  <div class="hint">بعد ما تقول القيمة، بيروح للخانة اللي بعدها لوحده.</div>`;
- bindChips(a,c);
  const inp=$('#gv');inp.oninput=()=>{let v=inp.value;if(f[2]==='nid')v=VParser.toEn(v).replace(/\D/g,'');c[k]=v};
  const next=()=>{gIdx++;saveDraft();render();if(Plat.speech.supported&&S.autoMic!==false)setTimeout(()=>{const m=$('#mic');if(screen==='guided'&&micOwner!=='g'&&m)m.click()},250)};
  const startG=()=>listenField('g',k,{show:t=>{const l=$('#live');if(l)l.textContent=t},
@@ -346,14 +300,14 @@ function vGuided(a){const list=guidedList();const c=cur.c;
   state:s=>{const m=$('#mic');if(m){m.classList.toggle('live',s==='listening');m.textContent=s==='listening'?'■':'🎤'}}});
  $('#mic').onclick=startG;
  $('#next').onclick=next;$('#skip').onclick=next;
- $('#na').onclick=()=>{c[k]='/';next()};
+ $('#na').onclick=()=>{c[k]=c.region==='haram'?EMPTY:'/';next()};
  $('#prev').onclick=()=>{if(gIdx>0){gIdx--;render()}};
  $('#back').onclick=()=>go('capture');$('#fin').onclick=()=>go('review')}
 
-function fieldInput(f,c,extra=''){const k=f[0],v=c[k]??'';const t=f[2];
+function fieldInput(f,c,extra=''){const k=f[0],raw=c[k]??'',v=raw===EMPTY?'':raw;const t=f[2];
  const type=t==='date'&&v!=='/'?'date':'text';const im=t==='nid'||t==='num'?'inputmode="numeric"':'';
  return `<label class="f ${extra}"><span>${f[1]}${t==='nid'&&v&&v!=='/'&&String(v).length!==14?' <b style="color:var(--bad)">('+toAr(String(v).length)+' رقم — لازم ١٤)</b>':''}</span>
- <div class="fwrap"><input type="${type}" data-k="${k}" ${im} value="${esc(v)}"><button class="mic-s" data-mic="${k}" type="button">🎤</button></div></label>`}
+ <div class="fwrap"><input type="${type}" data-k="${k}" ${im} value="${esc(v)}" ${raw===EMPTY?'placeholder="فاضية"':''}><button class="mic-s" data-mic="${k}" type="button">🎤</button></div></label>`}
 function bindFields(root,c,onChange){
  root.querySelectorAll('input[data-k]').forEach(i=>i.oninput=()=>{let v=i.value;if(FMAP[i.dataset.k][2]==='nid')v=VParser.toEn(v).replace(/\D/g,'');c[i.dataset.k]=v;onChange&&onChange(i.dataset.k)});
  root.querySelectorAll('[data-mic]').forEach(b=>b.onclick=()=>{const k=b.dataset.mic;const inp=root.querySelector(`input[data-k="${k}"]`);
@@ -365,45 +319,40 @@ function bindChips(root,c,after){root.querySelectorAll('[data-v]').forEach(b=>b.
 
 function vMissing(a){const c=cur.c,m=missing(cur.form,c),o=emptyOpt(cur.form,c);
  if(!m.length&&!o.length){go('review');return}
- const optHtml=f=>`<div class="optf">${fieldInput(f,c)}<button class="btn ghost na" data-na="${f[0]}" type="button">مش موجود ( / )</button></div>`;
+ const H=c.region==='haram',NA=H?EMPTY:'/',NAL=H?'سيبها فاضية':'مش موجود ( / )';
+ const optHtml=f=>`<div class="optf">${fieldInput(f,c)}<button class="btn ghost na" data-na="${f[0]}" type="button">${NAL}</button></div>`;
  a.innerHTML=`<header class="top"><button class="iconbtn" id="back">→</button><h1>كمّل الناقص<span class="sub">${m.length?toAr(m.length)+' مطلوب · ':''}${toAr(o.length)} خانة تانية فاضية</span></h1></header>
- ${m.length?`<div class="card miss"><h3>مطلوب</h3>${m.map(f=>f[0]==='__viol'?`<label class="f"><span>نوع المخالفة — اختار</span></label>${chipsHtml(c)}<label class="f" style="margin-top:10px"><span>مخالفة تانية (اختياري)</span><textarea id="vc" rows="2">${esc(c.violCustom)}</textarea></label>`:fieldInput(f,c)).join('')}</div>`:''}
- ${o.length?`<div class="card"><h3>باقي خانات الورقة (${toAr(o.length)})</h3><div class="hint" style="text-align:right;margin-bottom:8px">قولها أو اكتبها. اللي مش موجود اضغط "مش موجود" وهيتكتب فيها ( / ) زي الورق.</div>${o.map(optHtml).join('')}
- <button class="btn sec" id="allna">كل الباقي مش موجود ( / )</button></div>`:''}
+ ${m.length?`<div class="card miss"><h3>مطلوب</h3>${m.map(f=>fieldInput(f,c)).join('')}</div>`:''}
+ ${o.length?`<div class="card"><h3>باقي خانات الورقة (${toAr(o.length)})</h3><div class="hint" style="text-align:right;margin-bottom:8px">قولها أو اكتبها. ${H?'اللي مش موجود سيبه — هيفضل فاضي في الورقة (منطقة الهرم).':'اللي مش موجود اضغط "مش موجود" وهيتكتب فيها ( / ) زي الورق.'}</div>${o.map(optHtml).join('')}
+ <button class="btn sec" id="allna">${H?'سيب الباقي فاضي':'كل الباقي مش موجود ( / )'}</button></div>`:''}
  <div class="bar"><div class="in"><button class="btn sec" id="guide" style="flex:1">خانة خانة</button><button class="btn" id="ok" style="flex:2">راجع الكل ←</button></div></div>`;
- bindFields(a,c);bindChips(a,c);const vc=$('#vc');if(vc)vc.oninput=()=>c.violCustom=vc.value;
- a.querySelectorAll('[data-na]').forEach(b=>b.onclick=()=>{const k=b.dataset.na;c[k]='/';const i=a.querySelector(`input[data-k="${k}"]`);if(i){i.type='text';i.value='/'}b.textContent='✓ مش موجود'});
- if($('#allna'))$('#allna').onclick=()=>{o.forEach(f=>{if(!String(c[f[0]]??'').trim())c[f[0]]='/'});go('review')};
+ bindFields(a,c);
+ a.querySelectorAll('[data-na]').forEach(b=>b.onclick=()=>{const k=b.dataset.na;c[k]=NA;const i=a.querySelector(`input[data-k="${k}"]`);if(i){i.type='text';i.value=H?'':'/';i.placeholder=H?'فاضية':''}b.textContent=H?'✓ فاضية':'✓ مش موجود'});
+ if($('#allna'))$('#allna').onclick=()=>{o.forEach(f=>{if(!String(c[f[0]]??'').trim())c[f[0]]=NA});go('review')};
  $('#back').onclick=()=>go('capture');$('#ok').onclick=()=>go('review');
  $('#guide').onclick=()=>{const list=guidedList();gIdx=Math.max(0,list.findIndex(f=>!String(c[f[0]]??'').trim()));go('guided')}}
 
 function vReview(a){const c=cur.c,form=cur.form,fs=fieldsFor(form),miss=new Set(missing(form,c).map(f=>f[0]));
- const groups={};for(const f of fs)(groups[f[5]]=groups[f[5]]||[]).push(f);
- const grpHtml=g=>{let list=groups[g]||[];if(g==='lic'&&c.licensed===false)list=[];
+ const groups={};for(const f of fs)(groups[f[3]]=groups[f[3]]||[]).push(f);
+ const grpHtml=g=>{const list=groups[g]||[];
   const mc=list.filter(f=>miss.has(f[0])).length;const ec=list.filter(f=>!String(c[f[0]]??'').trim()).length;
   return `<details class="card" ${mc||g==='site'||g==='owner'||g==='viol'?'open':''}><summary>${GROUPS[g]}${mc?`<span class="cnt">${toAr(mc)} ناقص</span>`:ec?`<span class="cnt" style="background:#9aa3b2">${toAr(ec)} فاضي</span>`:''}</summary>
-  ${g==='lic'?`<div class="sw"><button class="btn ${c.licensed!==false?'':'sec'}" data-lic="1" type="button">فيه ترخيص</button><button class="btn ${c.licensed===false?'':'sec'}" data-lic="0" type="button">بدون ترخيص</button></div>`:''}
-  ${g==='viol'?`${chipsHtml(c)}<label class="f" style="margin-top:12px"><span>مخالفة تانية بصياغتك (اختياري)</span><textarea id="vc" rows="2">${esc(c.violCustom)}</textarea></label>`:''}
-  ${list.filter(f=>!(g==='viol'&&['convFrom','convTo'].includes(f[0])&&!(c.violations||[]).includes('conv'))).map(f=>fieldInput(f,c,miss.has(f[0])?'miss':'')).join('')}
-  ${g==='viol'&&form==='report'?`<div class="cost" id="cost">${costHtml(c)}</div>`:''}</details>`};
+  ${list.map(f=>fieldInput(f,c,miss.has(f[0])?'miss':'')).join('')}
+  ${g==='viol'?`<div class="cost" id="cost">${costHtml(c)}</div>`:''}</details>`};
  a.innerHTML=`<header class="top"><button class="iconbtn" id="back">→</button><h1>مراجعة البيانات<span class="sub">${FORMS[form].name}</span></h1><button class="iconbtn" id="more" title="إضافة بالصوت">🎤</button></header>
+ ${tplPicker(c,'rtpl')}
  ${miss.size?`<div class="warn">فيه ${toAr(miss.size)} خانة مهمة فاضية (متعلّمة بالبرتقاني). تقدر تكمّل بيها أو من غيرها.</div>`:''}
- ${['site','owner','viol','insp','lic','eng','reg','dec'].filter(g=>groups[g]||g==='viol').map(grpHtml).join('')}
- <div class="card"><h3>📃 نص المخالفة اللي هيتكتب في النموذج</h3><textarea id="para" rows="6">${esc(compose(form,c))}</textarea>
- <button class="btn ghost" id="resetPara" style="display:${c.paraOv&&c.paraOv[form]?'block':'none'}">↺ رجّع النص التلقائي</button></div>
+ ${['site','owner','viol','insp','lic','eng','reg','dec'].filter(g=>groups[g]).map(grpHtml).join('')}
  <div class="bar"><div class="in"><button class="btn ok" id="prev">معاينة الـ PDF ←</button></div></div>`;
- const refreshPara=()=>{const p=$('#para');if(p&&!(c.paraOv&&c.paraOv[form]))p.value=compose(form,c);const ce=$('#cost');if(ce)ce.innerHTML=costHtml(c)};
- bindFields(a,c,refreshPara);bindChips(a,c,()=>{refreshPara();if((c.violations||[]).includes('conv')!==!!a.querySelector('[data-k="convFrom"]'))keepScroll(render)});
- const vc=$('#vc');if(vc)vc.oninput=()=>{c.violCustom=vc.value;refreshPara()};
- a.querySelectorAll('[data-lic]').forEach(b=>b.onclick=()=>{c.licensed=b.dataset.lic==='1';keepScroll(render)});
- $('#para').oninput=e=>{c.paraOv=c.paraOv||{};c.paraOv[form]=e.target.value;$('#resetPara').style.display='block'};
- $('#resetPara').onclick=()=>{delete c.paraOv[form];$('#para').value=compose(form,c);$('#resetPara').style.display='none'};
+ bindTplPicker($('#rtpl'),c,()=>keepScroll(render));
+ bindFields(a,c,()=>{const ce=$('#cost');if(ce)ce.innerHTML=costHtml(c)});
  $('#back').onclick=()=>go(c.done&&Object.keys(c.done).length?'cases':'capture');
  $('#more').onclick=()=>{cur.transcript='';go('capture')};
  $('#prev').onclick=()=>go('preview')}
-function costHtml(c){const k=cost(c);if(!S.price)return 'حط <b>سعر المتر</b> في الإعدادات عشان التكلفة تتحسب لوحدها.';
- if(!k)return `سعر المتر: ${toAr(num(S.price).toLocaleString('en-US'))} جنيه — اكتب المسطح وهتتحسب التكلفة.`;
- return `${toAr(c.areaM2)} م٢ × ${toAr(num(S.price).toLocaleString('en-US'))} = <b>${toAr(k.toLocaleString('en-US'))} جنيه</b><br>${numWords(k)} جنيهاً فقط لا غير`}
+function costHtml(c){if(!S.price)return 'حط <b>سعر المتر</b> في الإعدادات عشان التكلفة تتحسب لوحدها.';
+ const line=(lab,a)=>{const k=costOf(a);return k?`${lab}${toAr(a)} م٢ × ${toAr(num(S.price).toLocaleString('en-US'))} = <b>${toAr(k.toLocaleString('en-US'))} جنيه</b><br><small>${numWords(k)} جنيهاً فقط لا غير</small>`:''};
+ const t=[line('',c.areaM2),fieldsFor(cur.form,c).some(f=>f[0]==='areaB')?line('البدروم: ',c.areaB):''].filter(Boolean);
+ return t.length?t.join('<hr style="border:0;border-top:1px dashed var(--acc)">'):`سعر المتر: ${toAr(num(S.price).toLocaleString('en-US'))} جنيه — اكتب المسطح وهتتحسب التكلفة.`}
 function keepScroll(fn){const y=window.scrollY;fn();window.scrollTo(0,y)}
 
 let lastPdf=null,lastName='';
@@ -468,11 +417,11 @@ function vSettings(a){
  <div class="chips">${Object.entries(PFONTS).map(([k,[fam,l]])=>`<button class="chip ${(S.font||'plex')===k?'on':''}" data-font="${k}" style="font-family:'${fam}',Cairo;font-weight:700">${l}</button>`).join('')}</div>
  <div id="fprev" style="margin:12px 0;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fff;font-size:20px;font-weight:700;line-height:1.8"></div>
  <div class="chips">${Object.entries(INKS).map(([k,l])=>`<button class="chip ${(S.ink||'#111111')===k?'on':''}" data-ink="${k}"><span style="color:${k}">●</span> ${l}</button>`).join('')}</div>
- <label class="row" style="margin-top:12px;font-size:14px"><input type="checkbox" id="slash" style="width:auto" ${S.slash!==false?'checked':''}> اكتب ( / ) في أي خانة فاضية</label>
+ <div class="hint" style="text-align:right;margin-top:12px">الخانات الفاضية: في <b>صحراء الأهرام</b> يتكتب فيها ( / )، وفي <b>الهرم</b> تفضل فاضية. بتختار المنطقة من أول شاشة.</div>
  <div style="margin-top:12px;font-size:14px">المايك يستنى قد إيه لما تسكت قبل ما يقفل الخانة:</div>
  <div class="chips" style="margin-top:6px">${[['short','قصير'],['mid','متوسط'],['long','طويل']].map(([k,l])=>`<button class="chip ${(S.pause||'mid')===k?'on':''}" data-pause="${k}">${l}</button>`).join('')}</div>
  <label class="row" style="margin-top:8px;font-size:14px"><input type="checkbox" id="autoMic" style="width:auto" ${S.autoMic!==false?'checked':''}> في وضع "خانة خانة" المايك يفتح لوحده</label></div>
- <div class="card"><h3>📍 قيم افتراضية</h3><label class="f"><span>المنطقة</span><input data-s="defArea" value="${esc(S.defArea)}"></label></div>
+ 
  <div class="card"><h3>💾 نسخة احتياطية</h3><div class="hint" style="text-align:right;margin-bottom:10px">القضايا محفوظة على الموبايل ده بس. اعمل نسخة احتياطية كل فترة وابعتها لنفسك.</div>
  <div class="actions"><button class="btn sec" id="exp">تصدير</button><button class="btn sec" id="imp">استيراد</button></div><input type="file" id="impf" accept=".json,application/json" style="display:none"></div>
  <div class="hint">الإصدار ${APP_VERSION}${Plat.NATIVE?' · تطبيق أندرويد':''}</div>
@@ -481,8 +430,7 @@ function vSettings(a){
  const fp=()=>{const f=PFONTS[S.font]||PFONTS.plex;const e=$('#fprev');e.style.fontFamily=`'${f[0]}',Cairo`;e.style.color=INKS[S.ink]?S.ink:'#111';e.textContent='عبد الله صلاح الدين حسن نايل — قطعة ٤٥ل — ٢٩٧٠٩٢٤٢١٠٢٧١٦'};fp();
  a.querySelectorAll('[data-font]').forEach(b=>b.onclick=()=>{S.font=b.dataset.font;a.querySelectorAll('[data-font]').forEach(x=>x.classList.toggle('on',x===b));fp()});
  a.querySelectorAll('[data-ink]').forEach(b=>b.onclick=()=>{S.ink=b.dataset.ink;a.querySelectorAll('[data-ink]').forEach(x=>x.classList.toggle('on',x===b));fp()});
- $('#slash').onchange=e=>S.slash=e.target.checked;
- a.querySelectorAll('[data-pause]').forEach(b=>b.onclick=()=>{S.pause=b.dataset.pause;a.querySelectorAll('[data-pause]').forEach(x=>x.classList.toggle('on',x===b))});$('#autoMic').onchange=e=>S.autoMic=e.target.checked;
+  a.querySelectorAll('[data-pause]').forEach(b=>b.onclick=()=>{S.pause=b.dataset.pause;a.querySelectorAll('[data-pause]').forEach(x=>x.classList.toggle('on',x===b))});$('#autoMic').onchange=e=>S.autoMic=e.target.checked;
  $('#exp').onclick=async()=>{const blob=new Blob([JSON.stringify({app:'haram-violations',v:1,at:new Date().toISOString(),settings:S,cases:CASES},null,1)],{type:'application/json'});
   const name=`نسخة احتياطية مخالفات ${today()}.json`;try{await Plat.files.share(blob,name,'application/json')}catch(e){}};
  $('#imp').onclick=()=>$('#impf').click();
@@ -493,7 +441,7 @@ function vSettings(a){
 
 /* ============ boot ============ */
 window.__render=async(form,c,s)=>{if(s)Object.assign(S,s);const cv=await renderForm(form,c,1.6);return cv.toDataURL('image/jpeg',.85)};
-window.__app={compose,applyParse,get S(){return S},get CASES(){return CASES}};
+window.__app={applyParse,tplOf,get S(){return S},get CASES(){return CASES}};
 (async()=>{render();await loadAll();try{const d=await Plat.store.get('draft');if(d&&d.c)DRAFT=d}catch(e){}render();
  if('serviceWorker' in navigator&&!Plat.NATIVE&&location.protocol==='https:')navigator.serviceWorker.register('sw.js').catch(()=>{});
  document.addEventListener('visibilitychange',()=>{if(document.hidden){stopMic();saveDraft()}})})();

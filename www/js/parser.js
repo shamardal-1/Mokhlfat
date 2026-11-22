@@ -197,6 +197,7 @@ const KW = [
   { p: ['الي الدور', 'لحد الدور', 'للدور', 'حتي الدور', 'لغايه الدور'], f: 'floorTo', c: 'floor' },
   { p: ['بالدور', 'في الدور', 'الدور'], f: (ctx, st) => st.floorFrom ? (st.floorTo ? null : 'floorTo') : 'floorFrom', c: 'floor' },
   { p: ['الي', 'لحد', 'حتي', 'لغايه', 'لغاية'], f: ctx => ctx === 'conv' ? 'convTo' : ctx === 'period' ? 'periodTo' : ctx === 'floor' ? 'floorTo' : null },
+  { p: ['مسطح البدروم', 'البدروم مسطحه', 'البدروم بمسطح', 'مساحه البدروم', 'مسطح عدم تنفيذ البدروم'], f: 'areaB' },
   { p: ['المسطح', 'مسطح', 'بمسطح', 'المساحه', 'مساحه', 'بمساحه', 'مسطحه', 'مساحتها', 'مساحته'], f: 'areaM2' },
   { p: ['المواد', 'الماده', 'ماده', 'مواد', 'المواد المخالفه'], f: 'lawArticles' },
   { p: ['المخالفه', 'المخالفات', 'الاعمال المخالفه', 'الاعمال', 'نوع المخالفه', 'والمخالفه هي', 'المخالفه هي'], f: '' },
@@ -241,7 +242,7 @@ function normalizeValue(key, raw, today) {
   if (DATES.includes(key)) return parseDate(v, today);
   if (key === 'inspHour') return parseHour(v);
   if (key === 'floorFrom' || key === 'floorTo') return parseFloor(v);
-  if (key === 'areaM2') { const n = numsOf(v.replace(/متر|مربع|م2|م٢/g, ' ')); return n.length ? String(n[0]) : ''; }
+  if (key === 'areaM2' || key === 'areaB') { const n = numsOf(v.replace(/متر|مربع|م2|م٢/g, ' ')); return n.length ? String(n[0]) : ''; }
   if (key === 'licYear') { const n = numsOf(v); if (!n.length) return ''; let y = n[0]; if (y < 100) y += 2000; return String(y); }
   if (key === 'plot') {
     /* spoken letter names after the number: "45 لام" -> 45ل */

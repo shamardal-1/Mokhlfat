@@ -1,5 +1,5 @@
 /* offline cache for the web build — bump VERSION on every release */
-const VERSION = 'v1.1.0';
+const VERSION = 'v2.0.0';
 const FILES = [
   "./",
   "css/app.css",
@@ -19,14 +19,36 @@ const FILES = [
   "icons/maskable-512.png",
   "index.html",
   "js/app.js",
+  "js/layouts.js",
   "js/parser.js",
   "js/platform.js",
   "manifest.webmanifest",
-  "tpl/removal.jpg",
-  "tpl/report.jpg",
-  "tpl/stop.jpg",
+  "tpl/H1-removal.jpg",
+  "tpl/H1-report.jpg",
+  "tpl/H1-stop.jpg",
+  "tpl/H2-removal.jpg",
+  "tpl/H2-report.jpg",
+  "tpl/H2-stop.jpg",
+  "tpl/H3-removal.jpg",
+  "tpl/H3-report.jpg",
+  "tpl/H3-stop.jpg",
+  "tpl/S1-removal.jpg",
+  "tpl/S1-report.jpg",
+  "tpl/S1-stop.jpg",
+  "tpl/S2-removal.jpg",
+  "tpl/S2-report.jpg",
+  "tpl/S2-stop.jpg",
+  "tpl/S3-removal.jpg",
+  "tpl/S3-report.jpg",
+  "tpl/S3-stop.jpg",
   "vendor/capacitor.js",
-  "vendor/jspdf.umd.min.js",
+  "vendor/pdf-lib.min.js",
+  "tpl/H1.pdf",
+  "tpl/H2.pdf",
+  "tpl/H3.pdf",
+  "tpl/S1.pdf",
+  "tpl/S2.pdf",
+  "tpl/S3.pdf"
 ];
 self.addEventListener('install', e => { e.waitUntil(caches.open(VERSION).then(c => c.addAll(FILES)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== VERSION).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
