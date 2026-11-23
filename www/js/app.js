@@ -61,7 +61,7 @@ const FIELDS=[
  ['addrNo','عنوانه: عقار رقم','text','owner'],['addrStreet','عنوانه: شارع','text','owner'],['addrDistrict','عنوانه: حي','text','owner'],
  ['addrArea','عنوانه: منطقة / مدينة','text','owner'],['addrGov','عنوانه: محافظة','text','owner'],
  ['engName','المهندس المشرف','text','eng'],['engNid','رقمه القومي','nid','eng'],['contrName','المقاول المنفذ','text','eng'],['contrNid','رقمه القومي','nid','eng'],
- ['floorOne','الدور','text','viol'],['floorFrom','من الدور','text','viol'],['floorTo','إلى الدور','text','viol'],
+ ['floorOne','الدور','text','viol'],['floorFrom','من الدور','text','viol'],['floorTo','إلى الدور','text','viol'],['floorsCount','عدد الأدوار (للتكلفة)','num','viol'],
  ['areaB','مسطح البدروم (م٢)','num','viol'],['areaM2','المسطح (م٢)','num','viol'],['lawArticles','المواد المخالفة من قانون البناء','text','viol'],
  ['reportRegNo','رقم القيد بسجل المحاضر','text','reg'],['reportRegDate','تاريخ القيد','date','reg'],
  ['stopRegNo','رقم القيد بسجل الإيقاف','text','reg'],['stopRegDate','تاريخ القيد','date','reg'],
@@ -72,7 +72,7 @@ const FIELDS=[
 const FMAP=Object.fromEntries(FIELDS.map(f=>[f[0],f]));
 const GROUPS={site:'📍 موقع المخالفة',insp:'🔎 المعاينة',lic:'📄 الترخيص',owner:'👤 المالك / المخالف',eng:'👷 المهندس والمقاول',viol:'⚠️ الأعمال المخالفة',reg:'🗂️ بيانات القيد بالسجل',dec:'⚖️ القرارات المرتبطة'};
 const REQ=new Set(['plot','street','ownerName','ownerNid','inspDate','inspHour','licNo','licYear','floorOne','floorFrom','floorTo','areaB','areaM2',
- 'reportRegNo','reportRegDate','stopRegNo','stopRegDate','removalRegNo','removalRegDate','stopNo','stopDate','reportNo','reportDate','periodFrom','periodTo']);
+ 'floorsCount','reportRegNo','reportRegDate','stopRegNo','stopRegDate','removalRegNo','removalRegDate','stopNo','stopDate','reportNo','reportDate','periodFrom','periodTo']);
 
 const jobS=()=>String(S.jobSuffix||'').replace(/^\s*(ال)?مهندس\s*/,'').trim();
 const EMPTY='∅'; // answered: leave blank
@@ -89,14 +89,20 @@ function newCase(){const t=today();return{id:uid(),created:Date.now(),updated:Da
 
 function nextReg(key){let m=0;for(const c of CASES){const v=num(c[key]);if(v>m)m=v}return m?String(m+1):''}
 /* fields shown/asked for this form = the blanks that exist on the chosen template page */
-function fieldsFor(form,c){c=c||cur.c;const keys=new Set((LAYOUTS[tplOf(c)][form]||[]).map(b=>b.k));return FIELDS.filter(f=>keys.has(f[0]))}
+function fieldsFor(form,c){c=c||cur.c;const keys=new Set((LAYOUTS[tplOf(c)][form]||[]).map(b=>b.k));if(keys.has('areaM2'))keys.add('floorsCount');for(const h of HANDWRITTEN)keys.delete(h);return FIELDS.filter(f=>keys.has(f[0]))}
 function isReq(f,form,c){if(!REQ.has(f[0]))return false;if(f[0]==='street'&&(c.region||'sahara')==='sahara')return false;
  if(['areaM2','areaB'].includes(f[0])&&!S.price&&form!=='report')return true;return true}
 const hasVal=(k,c)=>{const h=x=>String(c[x]??'').trim()!=='';if(k==='floorOne')return h('floorOne')||h('floorFrom');if(k==='floorFrom')return h('floorFrom')||h('floorOne');return h(k)};
-function missing(form,c){return fieldsFor(form,c).filter(f=>isReq(f,form,c)&&!hasVal(f[0],c))}
+function missing(form,c){return fieldsFor(form,c).filter(f=>isReq(f,form,c)&&!hasVal(f[0],c)).sort((x,y)=>(y[0]==='floorsCount')-(x[0]==='floorsCount'))}
 function emptyOpt(form,c){const req=new Set(missing(form,c).map(f=>f[0]));return fieldsFor(form,c).filter(f=>!req.has(f[0])&&!hasVal(f[0],c))}
-const costOf=a=>{const p=num(S.price),x=num(a);return p&&x?Math.round(p*x):0};
-function cost(c){return costOf(c.areaM2)}
+const costOf=(a,n=1)=>{const p=num(S.price),x=num(a),f=num(n);return p&&x&&f?Math.round(p*x*f):0};
+/* number of floors from the spoken range: الأرضي→الثالث = 4 , الأول→الثاني = 2 */
+function floorIdx(s){if(isBlank(s)||s==='/')return null;const f=VParser.parseFloor(String(s));if(f==='البدروم')return -1;if(f==='الأرضي')return 0;const i=VParser.ORD.indexOf(f);return i>=0?i:null}
+function floorsFromRange(c){let a=c.floorFrom,b=c.floorTo;
+ if(isBlank(a)&&!isBlank(c.floorOne)){const p=String(c.floorOne).split(/\s+(?:حتى|إلى|الى|لحد)\s+/);a=p[0];b=b||p[1]}
+ const x=floorIdx(a),y=floorIdx(b);return x!==null&&y!==null?Math.abs(y-x)+1:0}
+function syncFloors(c){if(c.floorsManual)return;const n=floorsFromRange(c);c.floorsCount=n?String(n):''}
+function cost(c){return costOf(c.areaM2,c.floorsCount)}
 function costText(k,wide){if(!k)return'';const n=toAr(k.toLocaleString('en-US').replace(/,/g,'٬'));return wide?`${n} جنيهاً (${numWords(k)} جنيهاً فقط لا غير)`:`${n} جنيهاً`}
 
 /* value printed for a layout key */
@@ -124,10 +130,12 @@ function loadPdf(t){return pdfCache[t]||(pdfCache[t]=fetch(`tpl/${t}.pdf`).then(
 const PW=595.32,PH=841.92, FS=11.5; // page size and base text size (points)
 function fitText(ctx,t,x,y,w,size=FS,min=6.5,align='center'){t=toAr(t);ctx.textAlign=align;let s=size;ctx.font=`700 ${s}px ${FONT}`;while(ctx.measureText(t).width>w&&s>min){s-=.25;ctx.font=`700 ${s}px ${FONT}`}ctx.fillText(t,x,y)}
 /* transparent overlay (in points × scale) holding everything we write on the page */
+const HANDWRITTEN=new Set(['inspHour','inspDate']); // left blank on purpose — written by hand
 async function drawOverlay(ctx,form,c,covers){ /* covers: array to collect white-out boxes instead of painting them (PDF draws them as vector) */
  const lay=LAYOUTS[tplOf(c)][form];const slash=(c.region||'sahara')==='sahara';
  ctx.direction='rtl';ctx.textBaseline='alphabetic';
  for(const b of lay){
+  if(HANDWRITTEN.has(b.k))continue;
   let v=valueFor(b.k,c,b);if(v===EMPTY)v='';v=v==null?'':String(v).trim();
   const w=b.x1-b.x0,cx=(b.x0+b.x1)/2;
   if(b.kind==='date'){if(!v)continue;const box=[b.x0,b.y-12.5,w,16.5];if(covers)covers.push(box);else{ctx.fillStyle='#fff';ctx.fillRect(...box)}ctx.fillStyle=INK;fitText(ctx,v,cx,b.y,w-2);continue}
@@ -156,7 +164,7 @@ async function makePdf(form,c){ /* final: the original vector page + a transpare
  const blob=new Blob([await out.save()],{type:'application/pdf'});
  return{blob,cv:await renderForm(form,c)}}
 
-const APP_VERSION='2.0.0';
+const APP_VERSION='2.1.0';
 
 /* ============ storage ============ */
 async function loadAll(){
@@ -197,7 +205,8 @@ function listenField(owner,key,{show,done,state}){
   state:s=>{state&&state(s);if(s==='listening'&&!timer)timer=setTimeout(finish,wait+4000);if(s==='idle'&&!finished){finished=true;clearTimeout(timer);const txt=(acc+' '+live).trim();if(txt)done(txt)}}})}
 
 /* ============ understanding (on-device) ============ */
-function applyParse(text,c,form){
+function applyParse(text,c,form){const _r=applyParse0(text,c,form);if(c.floorsCount&&!c.floorsManual&&VParser.parseTranscript(text,form,today()).values.floorsCount)c.floorsManual=true;syncFloors(c);return _r}
+function applyParse0(text,c,form){
  const r=VParser.parseTranscript(text,form,today());let n=0;
  for(const[k,v]of Object.entries(r.values)){if(FMAP[k]&&v){c[k]=v;n++}}
  if(r.violations.length){c.violations=[...new Set([...(c.violations||[]),...r.violations])];n+=r.violations.length}
@@ -292,10 +301,10 @@ function vGuided(a){const list=guidedList();const c=cur.c;
  <div class="actions"><button class="btn sec" id="prev">→ السابق</button><button class="btn" id="next">التالي ←</button>
  <button class="btn sec" id="na">${c.region==='haram'?'فاضية':'مش موجود ( / )'}</button><button class="btn sec" id="skip">تخطي</button></div></div>
  <div class="hint">بعد ما تقول القيمة، بيروح للخانة اللي بعدها لوحده.</div>`;
- const inp=$('#gv');inp.oninput=()=>{let v=inp.value;if(f[2]==='nid')v=VParser.toEn(v).replace(/\D/g,'');c[k]=v};
+ const inp=$('#gv');inp.oninput=()=>{let v=inp.value;if(f[2]==='nid')v=VParser.toEn(v).replace(/\D/g,'');c[k]=v;fieldEdited(c,k)};
  const next=()=>{gIdx++;saveDraft();render();if(Plat.speech.supported&&S.autoMic!==false)setTimeout(()=>{const m=$('#mic');if(screen==='guided'&&micOwner!=='g'&&m)m.click()},250)};
  const startG=()=>listenField('g',k,{show:t=>{const l=$('#live');if(l)l.textContent=t},
-  done:t=>{const v=normalizeField(k,t);c[k]=v;const i=$('#gv');if(i){if(f[2]==='date'&&v&&!/^\d{4}-/.test(v))i.type='text';i.value=v}const l=$('#live');if(l)l.textContent='';
+  done:t=>{const v=normalizeField(k,t);c[k]=v;fieldEdited(c,k);const i=$('#gv');if(i){if(f[2]==='date'&&v&&!/^\d{4}-/.test(v))i.type='text';i.value=v}const l=$('#live');if(l)l.textContent='';
    setTimeout(next,700)},
   state:s=>{const m=$('#mic');if(m){m.classList.toggle('live',s==='listening');m.textContent=s==='listening'?'■':'🎤'}}});
  $('#mic').onclick=startG;
@@ -308,10 +317,13 @@ function fieldInput(f,c,extra=''){const k=f[0],raw=c[k]??'',v=raw===EMPTY?'':raw
  const type=t==='date'&&v!=='/'?'date':'text';const im=t==='nid'||t==='num'?'inputmode="numeric"':'';
  return `<label class="f ${extra}"><span>${f[1]}${t==='nid'&&v&&v!=='/'&&String(v).length!==14?' <b style="color:var(--bad)">('+toAr(String(v).length)+' رقم — لازم ١٤)</b>':''}</span>
  <div class="fwrap"><input type="${type}" data-k="${k}" ${im} value="${esc(v)}" ${raw===EMPTY?'placeholder="فاضية"':''}><button class="mic-s" data-mic="${k}" type="button">🎤</button></div></label>`}
+function fieldEdited(c,k,root){
+ if(k==='floorsCount'){c.floorsManual=!isBlank(c.floorsCount);return}
+ if(['floorFrom','floorTo','floorOne'].includes(k)){c.floorsManual=false;syncFloors(c);const i=root&&root.querySelector('input[data-k="floorsCount"]');if(i)i.value=c.floorsCount||''}}
 function bindFields(root,c,onChange){
- root.querySelectorAll('input[data-k]').forEach(i=>i.oninput=()=>{let v=i.value;if(FMAP[i.dataset.k][2]==='nid')v=VParser.toEn(v).replace(/\D/g,'');c[i.dataset.k]=v;onChange&&onChange(i.dataset.k)});
+ root.querySelectorAll('input[data-k]').forEach(i=>i.oninput=()=>{let v=i.value;if(FMAP[i.dataset.k][2]==='nid')v=VParser.toEn(v).replace(/\D/g,'');c[i.dataset.k]=v;fieldEdited(c,i.dataset.k,root);onChange&&onChange(i.dataset.k)});
  root.querySelectorAll('[data-mic]').forEach(b=>b.onclick=()=>{const k=b.dataset.mic;const inp=root.querySelector(`input[data-k="${k}"]`);
-  const ok=listenField('f_'+k,k,{show:t=>{inp.value='';inp.placeholder=t},done:t=>{inp.placeholder='';const v=normalizeField(k,t);c[k]=v;if(inp.type==='date'&&!/^\d{4}-/.test(v))inp.type='text';inp.value=v;onChange&&onChange(k)},
+  const ok=listenField('f_'+k,k,{show:t=>{inp.value='';inp.placeholder=t},done:t=>{inp.placeholder='';const v=normalizeField(k,t);c[k]=v;if(inp.type==='date'&&!/^\d{4}-/.test(v))inp.type='text';inp.value=v;fieldEdited(c,k,root);onChange&&onChange(k)},
    state:s=>{b.textContent=s==='listening'?'⏺':'🎤';b.style.background=s==='listening'?'#fde2e0':''}});
   if(!ok&&!Plat.speech.supported)inp.focus()})}
 function chipsHtml(c){return `<div class="chips">${VIOL.map(v=>`<button class="chip ${(c.violations||[]).includes(v.k)?'on':''}" data-v="${v.k}" type="button">${v.l}</button>`).join('')}</div>`}
@@ -350,8 +362,8 @@ function vReview(a){const c=cur.c,form=cur.form,fs=fieldsFor(form),miss=new Set(
  $('#more').onclick=()=>{cur.transcript='';go('capture')};
  $('#prev').onclick=()=>go('preview')}
 function costHtml(c){if(!S.price)return 'حط <b>سعر المتر</b> في الإعدادات عشان التكلفة تتحسب لوحدها.';
- const line=(lab,a)=>{const k=costOf(a);return k?`${lab}${toAr(a)} م٢ × ${toAr(num(S.price).toLocaleString('en-US'))} = <b>${toAr(k.toLocaleString('en-US'))} جنيه</b><br><small>${numWords(k)} جنيهاً فقط لا غير</small>`:''};
- const t=[line('',c.areaM2),fieldsFor(cur.form,c).some(f=>f[0]==='areaB')?line('البدروم: ',c.areaB):''].filter(Boolean);
+ const line=(lab,a,n)=>{const k=costOf(a,n||1);return k?`${lab}${toAr(a)} م٢${n?' × '+toAr(n)+' '+(num(n)===1?'دور':num(n)===2?'دورين':'أدوار'):''} × ${toAr(num(S.price).toLocaleString('en-US'))} = <b>${toAr(k.toLocaleString('en-US'))} جنيه</b><br><small>${numWords(k)} جنيهاً فقط لا غير</small>`:''};
+ const t=[!isBlank(c.areaM2)&&isBlank(c.floorsCount)?'<b style="color:var(--bad)">اكتب عدد الأدوار عشان التكلفة تتحسب</b>':line('',c.areaM2,c.floorsCount),fieldsFor(cur.form,c).some(f=>f[0]==='areaB')?line('البدروم: ',c.areaB):''].filter(Boolean);
  return t.length?t.join('<hr style="border:0;border-top:1px dashed var(--acc)">'):`سعر المتر: ${toAr(num(S.price).toLocaleString('en-US'))} جنيه — اكتب المسطح وهتتحسب التكلفة.`}
 function keepScroll(fn){const y=window.scrollY;fn();window.scrollTo(0,y)}
 

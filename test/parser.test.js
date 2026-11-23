@@ -43,4 +43,7 @@ r = P.parseTranscript('قطعه 45 لام شارع التقسيم المالك �
 eq('t6 android', r.values, {plot:'45ل',street:'التقسيم',ownerName:'عبد الله صلاح الدين حسن نايل',ownerNid:'29709242102716',licNo:'58',licYear:'2015',floorFrom:'الأرضي',floorTo:'الرابع',areaM2:'100'});
 eq('t6 viol', r.violations, ['basement','projections']);
 [['plot','45 لام','45ل'],['plot','مية وتلاتة وسبعين حرف هاء','173هـ'],['plot','خمسة وأربعين ل','45ل'],['plot','12','12']].forEach(([k,a,b])=>eq('nv '+k+' '+a,P.normalizeValue(k,a,T),b));
+r = P.parseTranscript('من الدور الأول إلى الدور الثاني المسطح 500 متر عدد الأدوار اتنين', 'report', T);
+eq('t7', [r.values.floorFrom, r.values.floorTo, r.values.areaM2, r.values.floorsCount], ['الأول','الثاني','500','2']);
+[['floorsCount','دورين','2'],['floorsCount','تلات أدوار','3'],['floorsCount','6','6']].forEach(([k,a,b])=>eq('nv '+k+' '+a,P.normalizeValue(k,a,T),b));
 console.log(`pass ${pass} fail ${fail}`);
