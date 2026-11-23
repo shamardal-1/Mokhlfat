@@ -130,7 +130,7 @@ function loadPdf(t){return pdfCache[t]||(pdfCache[t]=fetch(`tpl/${t}.pdf`).then(
 const PW=595.32,PH=841.92, FS=11.5; // page size and base text size (points)
 function fitText(ctx,t,x,y,w,size=FS,min=6.5,align='center'){t=toAr(t);ctx.textAlign=align;let s=size;ctx.font=`700 ${s}px ${FONT}`;while(ctx.measureText(t).width>w&&s>min){s-=.25;ctx.font=`700 ${s}px ${FONT}`}ctx.fillText(t,x,y)}
 /* transparent overlay (in points × scale) holding everything we write on the page */
-const HANDWRITTEN=new Set(['inspHour','inspDate']); // left blank on purpose — written by hand
+const HANDWRITTEN=new Set(['inspHour','inspDate','reportRegDate','stopRegDate','removalRegDate']); // left blank on purpose — written by hand
 async function drawOverlay(ctx,form,c,covers){ /* covers: array to collect white-out boxes instead of painting them (PDF draws them as vector) */
  const lay=LAYOUTS[tplOf(c)][form];const slash=(c.region||'sahara')==='sahara';
  ctx.direction='rtl';ctx.textBaseline='alphabetic';
@@ -140,7 +140,7 @@ async function drawOverlay(ctx,form,c,covers){ /* covers: array to collect white
   const w=b.x1-b.x0,cx=(b.x0+b.x1)/2;
   if(b.kind==='date'){if(!v)continue;const box=[b.x0,b.y-12.5,w,16.5];if(covers)covers.push(box);else{ctx.fillStyle='#fff';ctx.fillRect(...box)}ctx.fillStyle=INK;fitText(ctx,v,cx,b.y,w-2);continue}
   ctx.fillStyle=INK;
-  if(b.kind==='after'){if(v)fitText(ctx,v,b.x1,b.y,w,FS,6.5,'right');continue}
+  if(b.kind==='after'){if(v)fitText(ctx,v,b.x1,b.y-4.4,w,13,6.5,'right');continue} // printed word beside it is a larger font: match its baseline
   const y=b.kind==='dots'?b.y-1.2:b.y;
   if(v)fitText(ctx,v,cx,y,w-2);else if(slash&&!b.k.startsWith('S_')&&b.k!=='employee')fitText(ctx,'/',cx,y,20)}}
 async function renderForm(form,c,scale=2){ /* preview: background image + overlay */
@@ -164,7 +164,7 @@ async function makePdf(form,c){ /* final: the original vector page + a transpare
  const blob=new Blob([await out.save()],{type:'application/pdf'});
  return{blob,cv:await renderForm(form,c)}}
 
-const APP_VERSION='2.1.0';
+const APP_VERSION='2.2.0';
 
 /* ============ storage ============ */
 async function loadAll(){
