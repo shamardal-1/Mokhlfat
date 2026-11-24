@@ -12,6 +12,7 @@ PAGE = {'report': 1, 'stop': 2, 'removal': 3}
 
 def load(v, form):
     pdf = os.path.join(ROOT, 'www', 'tpl', v + '.pdf')
+    load.pdf = pdf
     ws = words(pdf, PAGE[form])
     isdot = lambda w: '.' in w['t'] and w['t'].strip('.:') == ''
     texts = [w for w in ws if not isdot(w)]
@@ -33,6 +34,22 @@ def load(v, form):
         hs = sorted(w['y1'] - 0.22 * (w['y1'] - w['y0']) for w in l['w'] if len(w['t']) > 1)
         l['base'] = hs[len(hs) // 2] if hs else l['y']
     return lines, runs
+
+_IMG = {}
+def ink_baseline(pdf, page, w, dpi=300):
+    """Arabic text baseline = the pixel row with the most ink inside the printed word (where letters join)."""
+    import subprocess, numpy as np
+    from PIL import Image
+    key = (pdf, page)
+    if key not in _IMG:
+        out = f'/tmp/_bl_{abs(hash(key))}'
+        subprocess.run(['pdftoppm', '-r', str(dpi), '-gray', '-singlefile', '-f', str(page), '-l', str(page), pdf, out], check=True)
+        _IMG[key] = np.array(Image.open(out + '.pgm')) < 128
+    a = _IMG[key]; k = dpi / 72
+    y0, y1, x0, x1 = int(w['y0'] * k), int(w['y1'] * k) + 1, int(w['x0'] * k), int(w['x1'] * k) + 1
+    rows = a[y0:y1, x0:x1].sum(1)
+    if rows.max() == 0: return w['y1'] - 0.22 * (w['y1'] - w['y0'])
+    return round((y0 + int(rows.argmax()) + 1) / k, 1)
 
 def find_line(lines, need, nth=0):
     hits = [l for l in lines if all(any(w['t'] == n for w in l['w']) for n in need)]
@@ -58,6 +75,7 @@ def resolve(lines, runs, spec):
         if not cand: raise KeyError(f"left word {spec['l']}")
         x0 = cand[0]['x1'] + 2
     else: x0 = spec.get('xl', 42)
+    # baseline of the printed word right before the blank (some words, like a raised "لسنة", sit off the line's baseline)
     return dict(x0=x0, x1=x1, y=l['base'])
 
 # ---------- common fields per form ----------
@@ -75,8 +93,9 @@ COMMON = {
   D('inspHour', ['الساعة'], ':', rn=1),
   D('inspector', ['المهندس', 'القائم'], ':'),
   A('jobSuffix', ['الوظفة'], 'مهنـــدس', xl=60),
-  D('licNo', ['واقع', 'ملف'], 'رقم'),
-  D('licYear', ['واقع', 'ملف'], 'لسنة'),
+  # this header line is printed in a larger font: lift our text and enlarge it to sit with the label
+  D('licNo', ['واقع', 'ملف'], 'رقم', dy=-4.6, fs=12.5),
+  D('licYear', ['واقع', 'ملف'], 'لسنة', dy=-4.6, fs=12.5),
   D('ownerName', ['قومي', 'رقم'], ':'),
   D('ownerNid', ['قومي', 'رقم'], 'قومي'),
   D('capacity', ['صفة'], 'مستأجر/'),
@@ -166,11 +185,11 @@ N = {
   'removal': [S('floorOne', ['بصب', 'وبناء'], 'الدور', l='بدون'), S('areaM2', ['مبسطح', 'مما'], 'ي', l='مما')],
  },
  'S2': {
-  'report': [S('licNo', ['الرسومات', 'رقم:'], 'رقم:', l='لسنة'), S('licYear', ['الرسومات', 'رقم:'], 'لسنة', xl=40),
+  'report': [S('licNo', ['الرسومات', 'رقم:'], 'رقم:', l='لسنة', dy=-1.6), S('licYear', ['الرسومات', 'رقم:'], 'لسنة', xl=40, dy=-2.2),
              S('areaB', ['البدروم', 'العلوي'], 'حوالي', l='وتكلفة'), S('costB', ['البدروم', 'العلوي'], 'إجمالیة', xl=40),
              S('floorOne', ['بالدور'], 'بالدور', xl=40), S('areaM2', ['بمسطح', 'وبتكلفة'], 'بمسطح', l='وبتكلفة'),
              S('cost', ['بمسطح', 'وبتكلفة'], 'إجمالیة', xl=40)],
-  'stop': [S('licNo', ['الرســومات'], 'رقــم:', l='لســنة'), S('licYear', ['الرســومات'], 'لســنة', l='وذلــك'),
+  'stop': [S('licNo', ['الرســومات'], 'رقــم:', l='لســنة', dy=-1.6), S('licYear', ['الرســومات'], 'لســنة', l='وذلــك', dy=-2.2),
            S('areaB', ['البدروم', 'السفلي'], 'حوالي', l='وزیادة'),
            S('floorOne', ['بالدور'], 'بالدور', l='وذلك', lnn=1), S('areaM2', ['بالدور'], 'بمسطح', l='مما')],
   'removal': [S('licNo', ['مبخالفة', 'رقم:'], 'رقم:', xl=44), S('licYear', ['لسنة', 'بعدم'], 'لسنة', l='وذلك'),
@@ -178,10 +197,10 @@ N = {
               S('floorOne', ['بالدور'], 'بالدور', l='وذلك', lnn=1), S('areaM2', ['بالدور'], 'مبسطح', xl=44)],
  },
  'S3': {
-  'report': [S('licNo', ['الرسومات', 'رقم:'], 'رقم:', l='لسنة'), S('licYear', ['الرسومات', 'رقم:'], 'لسنة', xl=40),
+  'report': [S('licNo', ['الرسومات', 'رقم:'], 'رقم:', l='لسنة', dy=-1.6), S('licYear', ['الرسومات', 'رقم:'], 'لسنة', xl=40, dy=-2.2),
              S('floorOne', ['بزیادة'], 'الدور', xl=40), S('areaM2', ['بمسطح', 'وبتكلفة'], 'بمسطح', l='وبتكلفة'),
              S('cost', ['بمسطح', 'وبتكلفة'], 'إجمالیة', xl=40)],
-  'stop': [S('licNo', ['الرسومات', 'رقم:'], 'رقم:', l='لسنة'), S('licYear', ['الرسومات', 'رقم:'], 'لسنة', l='وذلك'),
+  'stop': [S('licNo', ['الرسومات', 'رقم:'], 'رقم:', l='لسنة', dy=-1.6), S('licYear', ['الرسومات', 'رقم:'], 'لسنة', l='وذلك', dy=-2.2),
            S('floorOne', ['الردود', 'وتقلیل'], 'الدور', l='وذلك'), S('areaM2', ['الردود', 'وتقلیل'], 'بمسطح', l='مما')],
   'removal': [S('licNo', ['مبخالفة', 'رقم:'], 'رقم:', xl=44), S('licYear', ['لسنة', 'زيادة'], 'لسنة', l='و'),
               S('floorOne', ['منطقة', 'الردود'], 'الدور', xl=44), S('areaM2', ['مبسطح', 'مما'], 'مبسطح', l='مما')],
@@ -193,10 +212,10 @@ N = {
   'removal': [S('floorOne', ['بصب', 'وبناء'], 'الدور', xl=44), S('areaM2', ['مبسطح', 'حوايل'], 'حوايل', xl=44)],
  },
  'H2': {
-  'report': [S('licNo', ['الرسومات', 'رقم:'], 'رقم:', l='لسنة'), S('licYear', ['الرسومات', 'رقم:'], 'لسنة', l='وذلك'),
+  'report': [S('licNo', ['الرسومات', 'رقم:'], 'رقم:', l='لسنة', dy=-1.6), S('licYear', ['الرسومات', 'رقم:'], 'لسنة', l='وذلك', dy=-2.2),
              S('floorFrom', ['األدوار', 'حتى'], 'األدوار', l='حتى'), S('floorTo', ['األدوار', 'حتى'], 'حتى', l='وذلك'),
              S('areaM2', ['األدوار', 'حتى'], 'حوالي', xl=40), S('cost', ['وبتكلفة', 'إجمالیة'], ':', xl=40)],
-  'stop': [S('licNo', ['الرسومات', 'رقم:'], 'رقم:', l='لسنة'), S('licYear', ['الرسومات', 'رقم:'], 'لسنة', l='وذلك'),
+  'stop': [S('licNo', ['الرسومات', 'رقم:'], 'رقم:', l='لسنة', dy=-1.6), S('licYear', ['الرسومات', 'رقم:'], 'لسنة', l='وذلك', dy=-2.2),
            S('floorFrom', ['األدوار', 'إلى'], 'من', l='إلى'), S('floorTo', ['األدوار', 'إلى'], 'إلى', l='وذلك'),
            S('areaM2', ['األدوار', 'إلى'], 'حوالي', l='مما')],
   'removal': [S('licNo', ['مبخالفة', 'رقم:'], 'رقم:', xl=44), S('licYear', ['لسنة', 'لتغيري'], 'لسنة', l='وذلك'),
@@ -204,10 +223,10 @@ N = {
               S('areaM2', ['مبسطح', 'مما'], 'حوايل', l='مما')],
  },
  'H3': {
-  'report': [S('licNo', ['الرســومات'], 'رقــم:', l='لســنة'), S('licYear', ['الرســومات'], 'لســنة', l='وذلــك'),
+  'report': [S('licNo', ['الرســومات'], 'رقــم:', l='لســنة', dy=-1.6), S('licYear', ['الرســومات'], 'لســنة', l='وذلــك', dy=-2.2),
              S('floorFrom', ['األدوار', 'حتى'], 'األدوار', l='حتى'), S('floorTo', ['األدوار', 'حتى'], 'حتى', l='ذلك'),
              S('areaM2', ['األدوار', 'حتى'], 'حوالي', xl=40), S('cost', ['وبتكلفة', 'إجمالیة'], 'إجمالیة', xl=40)],
-  'stop': [S('licNo', ['الرسومات', 'رقم:'], 'رقم:', l='لسنة'), S('licYear', ['الرسومات', 'رقم:'], 'لسنة', l='وذلك'),
+  'stop': [S('licNo', ['الرسومات', 'رقم:'], 'رقم:', l='لسنة', dy=-1.6), S('licYear', ['الرسومات', 'رقم:'], 'لسنة', l='وذلك', dy=-2.2),
            S('floorFrom', ['األدوار', 'إلى'], 'من', l='إلى'), S('floorTo', ['األدوار', 'إلى'], 'إلى', l='وذلك'),
            S('areaM2', ['األدوار', 'إلى'], 'حوالي', xl=40)],
   'removal': [S('licNo', ['مبخالفة', 'رقم:'], 'رقم:', xl=44), S('licYear', ['لسنة', 'لعدم'], 'لسنة', l='وذلك'),
@@ -225,7 +244,7 @@ for v in VAR:
         res = []
         for sp in specs:
             try:
-                sp2 = dict(sp)
+                sp2 = dict(sp, _pdf=load.pdf, _page=PAGE[form])
                 if sp2.get('r2'):  # dots left of a later colon on the line
                     l = find_line(lines, sp2['line']); R = word(l, sp2['r'])
                     cs = [w for w in l['w'] if w['t'] == sp2['r2'] and w['x1'] <= R['x0'] + 1]
@@ -239,7 +258,10 @@ for v in VAR:
                     ms = sorted([w for w in l['w'] if w['t'] == 'م' and w['x1'] < R['x0']], key=lambda w: -w['x1'])
                     box['x0'] = ms[0]['x0'] - 1
                 if box['x1'] - box['x0'] < 12: raise ValueError(f"tiny box {box}")
-                res.append(dict(k=sp['k'], kind=sp['kind'], x0=round(box['x0'], 1), x1=round(box['x1'], 1), y=round(box['y'], 1)))
+                e = dict(k=sp['k'], kind=sp['kind'], x0=round(box['x0'], 1), x1=round(box['x1'], 1), y=round(box['y'], 1))
+                for extra in ('dy', 'fs'):
+                    if extra in sp: e[extra] = sp[extra]
+                res.append(e)
             except Exception as e:
                 errors.append(f'{v} {form} {sp["k"]}: {e}')
         out[v][form] = res

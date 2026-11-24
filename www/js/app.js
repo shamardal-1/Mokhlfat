@@ -114,6 +114,9 @@ function valueFor(k,c,box){
   case 'jobSuffix':return jobS();case 'jobFull':return ('مهندس '+jobS()).trim();
   case 'cost':{const k2=cost(c);return k2?costText(k2,box.x1-box.x0>200):''}
   case 'costB':{const k2=costOf(c.areaB);return k2?costText(k2,box.x1-box.x0>200):''}
+  case 'costCalc':{const ps=costParts(c);if(!ps.length)return'';return 'حساب التكلفة: '+ps.map(x=>`${x.lab}: ${x.txt} = ${fmtN(x.v)} ج`).join('  +  ')}
+  case 'costTotal':{const ps=costParts(c);if(ps.length<2)return'';const tot=ps.reduce((a,x)=>a+x.v,0);return `التكلفة الإجمالية: ${fmtN(tot)} جنيهاً (${numWords(tot)} جنيهاً فقط لا غير)`}
+  case 'reflow':return valueFor('floorOne',c,{kind:'span'});
   case 'floorOne':{if(!isBlank(v))return v;const a=c.floorFrom,b=c.floorTo;if(isBlank(a))return v;return(!isBlank(b)&&b!==a)?`${a} حتى ${b}`:a}
   case 'floorFrom':return isBlank(v)&&!isBlank(c.floorOne)?c.floorOne:v;
   case 'areaM2':case 'areaB':return isBlank(v)?v:`${v} م٢`;
@@ -128,11 +131,31 @@ const imgCache={},pdfCache={};
 function loadImg(src){return imgCache[src]||(imgCache[src]=new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=src}))}
 function loadPdf(t){return pdfCache[t]||(pdfCache[t]=fetch(`tpl/${t}.pdf`).then(r=>{if(!r.ok)throw new Error('template '+t);return r.arrayBuffer()}))}
 const PW=595.32,PH=841.92, FS=11.5; // page size and base text size (points)
-function fitText(ctx,t,x,y,w,size=FS,min=6.5,align='center'){t=toAr(t);ctx.textAlign=align;let s=size;ctx.font=`700 ${s}px ${FONT}`;while(ctx.measureText(t).width>w&&s>min){s-=.25;ctx.font=`700 ${s}px ${FONT}`}ctx.fillText(t,x,y)}
+function fitText(ctx,t,x,y,w,size=FS,min=6.5,align='center'){t=toAr(t);ctx.textAlign=align;let s=size;ctx.font=`700 ${s}px ${FONT}`;while(ctx.measureText(t).width>w&&s>min){s-=.25;ctx.font=`700 ${s}px ${FONT}`}
+ /* text shrunk to fit a short blank is lifted so it sits in the middle of the line, not on its floor */
+ ctx.fillText(t,x,y-(size-s)*0.4)}
 /* transparent overlay (in points × scale) holding everything we write on the page */
+/* additions on the محضر page: the cost working + grand total in the blank space under the narrative,
+   and on S2 the floor blank is too narrow, so that printed line is rewritten further to the right with the floor in it */
+const S2_LINE='وزيادة أبعاد وبروزات المبنى متعدياً على منطقة الردود وتقليل مسطحات المناور وذلك بالدور';
+const EXTRA={
+ S1:{report:[{k:'costCalc',kind:'free',x0:42,x1:553,y:572.5}]},
+ S2:{report:[{k:'costCalc',kind:'free',x0:42,x1:553,y:591.5,fs:9},{k:'costTotal',kind:'free',x0:42,x1:553,y:603.5,fs:9},
+   {k:'reflow',kind:'reflow',x0:38,x1:553,y:564.3,cover:[38,553.5,430,14],skip:'floorOne'}]},
+ S3:{report:[{k:'costCalc',kind:'free',x0:42,x1:553,y:582}]},
+ H1:{report:[{k:'costCalc',kind:'free',x0:42,x1:553,y:578.5}]},
+ H2:{report:[{k:'costCalc',kind:'free',x0:42,x1:553,y:610.5}]},
+ H3:{report:[{k:'costCalc',kind:'free',x0:42,x1:553,y:608.5}]}};
+function layoutOf(c,form){const t=tplOf(c),ex=(EXTRA[t]&&EXTRA[t][form])||[];const skip=new Set(ex.map(e=>e.skip).filter(Boolean));
+ return LAYOUTS[t][form].filter(b=>!skip.has(b.k)).concat(ex)}
+const fmtN=n=>toAr(Math.round(n).toLocaleString('en-US').replace(/,/g,'٬'));
+function costParts(c){const p=num(S.price),parts=[];if(!p)return parts;
+ const a=num(c.areaM2),f=num(c.floorsCount);if(a&&f)parts.push({lab:'الأدوار',txt:`${fmtN(a)} م٢ × ${toAr(f)} ${f===1?'دور':f===2?'دور':'أدوار'} × ${fmtN(p)}`,v:a*f*p});
+ const t=tplOf(c);if(LAYOUTS[t].report.some(b=>b.k==='areaB')){const b=num(c.areaB);if(b)parts.push({lab:'البدروم',txt:`${fmtN(b)} م٢ × ${fmtN(p)}`,v:b*p})}
+ return parts}
 const HANDWRITTEN=new Set(['inspHour','inspDate','reportRegDate','stopRegDate','removalRegDate']); // left blank on purpose — written by hand
 async function drawOverlay(ctx,form,c,covers){ /* covers: array to collect white-out boxes instead of painting them (PDF draws them as vector) */
- const lay=LAYOUTS[tplOf(c)][form];const slash=(c.region||'sahara')==='sahara';
+ const lay=layoutOf(c,form);const slash=(c.region||'sahara')==='sahara';
  ctx.direction='rtl';ctx.textBaseline='alphabetic';
  for(const b of lay){
   if(HANDWRITTEN.has(b.k))continue;
@@ -140,9 +163,12 @@ async function drawOverlay(ctx,form,c,covers){ /* covers: array to collect white
   const w=b.x1-b.x0,cx=(b.x0+b.x1)/2;
   if(b.kind==='date'){if(!v)continue;const box=[b.x0,b.y-12.5,w,16.5];if(covers)covers.push(box);else{ctx.fillStyle='#fff';ctx.fillRect(...box)}ctx.fillStyle=INK;fitText(ctx,v,cx,b.y,w-2);continue}
   ctx.fillStyle=INK;
+  if(b.kind==='free'){if(v)fitText(ctx,v,b.x1,b.y,w,b.fs||9.8,6.5,'right');continue}
+  if(b.kind==='reflow'){const[x,y,ww,h]=b.cover;const box=[x,y,ww,h];if(covers)covers.push(box);else{ctx.fillStyle='#fff';ctx.fillRect(...box)}ctx.fillStyle=INK;
+   fitText(ctx,S2_LINE+' '+(v||'……'),b.x1,b.y,w,11,6.5,'right');continue}
   if(b.kind==='after'){if(v)fitText(ctx,v,b.x1,b.y-4.4,w,13,6.5,'right');continue} // printed word beside it is a larger font: match its baseline
-  const y=b.kind==='dots'?b.y-1.2:b.y;
-  if(v)fitText(ctx,v,cx,y,w-2);else if(slash&&!b.k.startsWith('S_')&&b.k!=='employee')fitText(ctx,'/',cx,y,20)}}
+  const y=(b.kind==='dots'?b.y-1.2:b.y)+(b.dy||0);
+  if(v)fitText(ctx,v,cx,y,w-2,b.fs||FS);else if(slash&&!b.k.startsWith('S_')&&b.k!=='employee')fitText(ctx,'/',cx,y,20)}}
 async function renderForm(form,c,scale=2){ /* preview: background image + overlay */
  applyPrintStyle();await document.fonts.load(`700 12px ${FONT}`,'أبجد ٠١٢ /');await document.fonts.ready;
  const t=tplOf(c),img=await loadImg(`tpl/${t}-${form}.jpg`);
@@ -164,7 +190,7 @@ async function makePdf(form,c){ /* final: the original vector page + a transpare
  const blob=new Blob([await out.save()],{type:'application/pdf'});
  return{blob,cv:await renderForm(form,c)}}
 
-const APP_VERSION='2.2.0';
+const APP_VERSION='2.3.1';
 
 /* ============ storage ============ */
 async function loadAll(){
@@ -364,6 +390,7 @@ function vReview(a){const c=cur.c,form=cur.form,fs=fieldsFor(form),miss=new Set(
 function costHtml(c){if(!S.price)return 'حط <b>سعر المتر</b> في الإعدادات عشان التكلفة تتحسب لوحدها.';
  const line=(lab,a,n)=>{const k=costOf(a,n||1);return k?`${lab}${toAr(a)} م٢${n?' × '+toAr(n)+' '+(num(n)===1?'دور':num(n)===2?'دورين':'أدوار'):''} × ${toAr(num(S.price).toLocaleString('en-US'))} = <b>${toAr(k.toLocaleString('en-US'))} جنيه</b><br><small>${numWords(k)} جنيهاً فقط لا غير</small>`:''};
  const t=[!isBlank(c.areaM2)&&isBlank(c.floorsCount)?'<b style="color:var(--bad)">اكتب عدد الأدوار عشان التكلفة تتحسب</b>':line('',c.areaM2,c.floorsCount),fieldsFor(cur.form,c).some(f=>f[0]==='areaB')?line('البدروم: ',c.areaB):''].filter(Boolean);
+ const ps=costParts(c);if(ps.length>1){const tot=ps.reduce((a,x)=>a+x.v,0);t.push(`<b>الإجمالي: ${fmtN(tot)} جنيه</b><br><small>${numWords(tot)} جنيهاً فقط لا غير</small>`)}
  return t.length?t.join('<hr style="border:0;border-top:1px dashed var(--acc)">'):`سعر المتر: ${toAr(num(S.price).toLocaleString('en-US'))} جنيه — اكتب المسطح وهتتحسب التكلفة.`}
 function keepScroll(fn){const y=window.scrollY;fn();window.scrollTo(0,y)}
 
