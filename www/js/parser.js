@@ -240,6 +240,8 @@ const NIDS = ['ownerNid', 'engNid', 'contrNid'];
 function normalizeValue(key, raw, today) {
   let v = trimVal(raw); if (!v) return '';
   if (NIDS.includes(key)) return numsOf(v).map(String).join('').replace(/\D/g, '');
+  if (key === 'licDate') { const n = numsOf(v); if (n.length === 1 && n[0] > 1950 && n[0] < 2100) return String(n[0]); }
+  if (key === 'licWorks') return v.replace(/\s*و?(زائد|زايد)\s*/g, ' + ').replace(/\s+/g, ' ').trim();
   if (DATES.includes(key)) return parseDate(v, today);
   if (key === 'inspHour') return parseHour(v);
   if (key === 'floorFrom' || key === 'floorTo') return parseFloor(v);

@@ -70,6 +70,13 @@ const FIELDS=[
  ['reportNo','رقم محضر المخالفة','text','dec'],['reportDate','تاريخ المحضر','date','dec'],
  ['periodFrom','مدة الإزالة: من','date','dec'],['periodTo','مدة الإزالة: إلى','date','dec']];
 const FMAP=Object.fromEntries(FIELDS.map(f=>[f[0],f]));
+/* "الأعمال المرخص بها" choices in قرار الإزالة, per region (plus free typing) */
+const LIC_WORKS={
+ sahara:['بدروم سفلي (جراج) + بدروم علوي (سكني) + أرضي (سكني) + أربعة أدوار متكررة (سكنية)','بدروم (جراج) + أرضي (سكني) + أربعة أدوار متكررة (سكنية)'],
+ haram:['أرضي ودورين','أرضي وتلاتة','أرضي وأربعة','بدروم وأرضي وأربعة']};
+const plusify=t=>String(t||'').replace(/\s*(?:\bو?زائد|\bو?زايد)\s*/g,' + ').replace(/\s+\+\s+/g,' + ').trim();
+/* ترخيص date in الإزالة: a full date or just a year (2016) — never filled automatically */
+const isYear=v=>/^\d{4}$/.test(VParser.toEn(String(v||'').trim()));
 const GROUPS={site:'📍 موقع المخالفة',insp:'🔎 المعاينة',lic:'📄 الترخيص',owner:'👤 المالك / المخالف',eng:'👷 المهندس والمقاول',viol:'⚠️ الأعمال المخالفة',reg:'🗂️ بيانات القيد بالسجل',dec:'⚖️ القرارات المرتبطة'};
 const REQ=new Set(['plot','street','ownerName','ownerNid','inspDate','inspHour','licNo','licYear','floorOne','floorFrom','floorTo','areaB','areaM2',
  'floorsCount','reportRegNo','reportRegDate','stopRegNo','stopRegDate','removalRegNo','removalRegDate','stopNo','stopDate','reportNo','reportDate','periodFrom','periodTo']);
@@ -77,7 +84,7 @@ const REQ=new Set(['plot','street','ownerName','ownerNid','inspDate','inspHour',
 const jobS=()=>String(S.jobSuffix||'').replace(/^\s*(ال)?مهندس\s*/,'').trim();
 const EMPTY='∅'; // answered: leave blank
 const isBlank=v=>{const x=String(v??'').trim();return !x||x===EMPTY};
-const DEF_SET={inspector:'',jobSuffix:'مدني',responsible:'',tanzeem:'',gm:'',legal:'',employee:'',price:'',font:'plex',ink:'#111111',autoMic:true,pause:'mid',region:'sahara'};
+const DEF_SET={inspector:'',jobSuffix:'مدني',responsible:'',tanzeem:'',gm:'',legal:'',employee:'',price:'',licType:'إنشاء سكني',font:'plex',ink:'#111111',autoMic:true,pause:'mid',region:'sahara'};
 let S={...DEF_SET};
 let CASES=[];
 let cur=null; // {form, c}
@@ -92,7 +99,8 @@ function nextReg(key){let m=0;for(const c of CASES){const v=num(c[key]);if(v>m)m
 function fieldsFor(form,c){c=c||cur.c;const keys=new Set((LAYOUTS[tplOf(c)][form]||[]).map(b=>b.k));if(keys.has('areaM2'))keys.add('floorsCount');for(const h of HANDWRITTEN)keys.delete(h);return FIELDS.filter(f=>keys.has(f[0]))}
 function isReq(f,form,c){if(!REQ.has(f[0]))return false;if(f[0]==='street'&&(c.region||'sahara')==='sahara')return false;
  if(['areaM2','areaB'].includes(f[0])&&!S.price&&form!=='report')return true;return true}
-const hasVal=(k,c)=>{const h=x=>String(c[x]??'').trim()!=='';if(k==='floorOne')return h('floorOne')||h('floorFrom');if(k==='floorFrom')return h('floorFrom')||h('floorOne');return h(k)};
+const hasVal=(k,c)=>{const h=x=>String(c[x]??'').trim()!=='';if(k==='floorOne')return h('floorOne')||h('floorFrom');if(k==='floorFrom')return h('floorFrom')||h('floorOne');if(k==='licYear')return h('licYear')||!!licYearOf(c);return h(k)};
+const licYearOf=c=>{const d=VParser.toEn(String(c.licDate||''));const m=d.match(/^(\d{4})/);return m?m[1]:''};
 function missing(form,c){return fieldsFor(form,c).filter(f=>isReq(f,form,c)&&!hasVal(f[0],c)).sort((x,y)=>(y[0]==='floorsCount')-(x[0]==='floorsCount'))}
 function emptyOpt(form,c){const req=new Set(missing(form,c).map(f=>f[0]));return fieldsFor(form,c).filter(f=>!req.has(f[0])&&!hasVal(f[0],c))}
 const costOf=(a,n=1)=>{const p=num(S.price),x=num(a),f=num(n);return p&&x&&f?Math.round(p*x*f):0};
@@ -120,6 +128,10 @@ function valueFor(k,c,box){
   case 'floorOne':{if(!isBlank(v))return v;const a=c.floorFrom,b=c.floorTo;if(isBlank(a))return v;return(!isBlank(b)&&b!==a)?`${a} حتى ${b}`:a}
   case 'floorFrom':return isBlank(v)&&!isBlank(c.floorOne)?c.floorOne:v;
   case 'areaM2':case 'areaB':return isBlank(v)?v:`${v} م٢`;
+  case 'licYear':return isBlank(v)&&v!==EMPTY&&licYearOf(c)?licYearOf(c):v;
+  case 'licType':return isBlank(v)&&v!==EMPTY?(S.licType||''):v;
+  case 'licWorks':return isBlank(v)?v:plusify(v);
+  case 'licDate':{if(isBlank(v))return(!isBlank(c.licYear)&&box.kind==='date')?toAr(c.licYear):v;return isYear(v)?toAr(VParser.toEn(v)):fmtDate(v)}
   default:return(box.kind==='date')?fmtDate(v):v}}
 
 /* ============ PDF rendering on the real template pages ============ */
@@ -190,7 +202,7 @@ async function makePdf(form,c){ /* final: the original vector page + a transpare
  const blob=new Blob([await out.save()],{type:'application/pdf'});
  return{blob,cv:await renderForm(form,c)}}
 
-const APP_VERSION='2.3.1';
+const APP_VERSION='2.4.0';
 
 /* ============ storage ============ */
 async function loadAll(){
@@ -322,11 +334,13 @@ function vGuided(a){const list=guidedList();const c=cur.c;
  <div class="card"><div class="guide-n">${GROUPS[f[3]]}</div><div class="guide-f">${f[1]}</div>
  <div class="micwrap"><button class="mic small ${on?'live':''}" id="mic">${on?'■':'🎤'}</button></div>
  <div class="live-t" id="live" style="text-align:center"></div>
- <input id="gv" class="guide-v" ${f[2]==='date'&&c[k]!=='/'?'type="date"':''} ${f[2]==='nid'||f[2]==='num'?'inputmode="numeric"':''} value="${esc(c[k]===EMPTY?'':c[k]??'')}" placeholder="${c[k]===EMPTY?'فاضية':'قول أو اكتب'}">
+ <input id="gv" class="guide-v" ${f[2]==='date'&&c[k]!=='/'&&!(k==='licDate'&&cur.form==='removal')?'type="date"':''} ${f[2]==='nid'||f[2]==='num'?'inputmode="numeric"':''} value="${esc(c[k]===EMPTY?'':c[k]??'')}" placeholder="${c[k]===EMPTY?'فاضية':'قول أو اكتب'}">
  ${c[k]&&f[2]!=='date'?`<div class="hint" style="margin-top:6px">${esc(showV(c[k]))}</div>`:''}
+ ${k==='licWorks'&&cur.form==='removal'?worksChips(c):''}
  <div class="actions"><button class="btn sec" id="prev">→ السابق</button><button class="btn" id="next">التالي ←</button>
  <button class="btn sec" id="na">${c.region==='haram'?'فاضية':'مش موجود ( / )'}</button><button class="btn sec" id="skip">تخطي</button></div></div>
  <div class="hint">بعد ما تقول القيمة، بيروح للخانة اللي بعدها لوحده.</div>`;
+ a.querySelectorAll('[data-works]').forEach(b=>b.onclick=()=>{if(b.dataset.works==='manual'){c.licWorks='';$('#gv').value='';$('#gv').focus();return}c.licWorks=LIC_WORKS[c.region||'sahara'][+b.dataset.works];next()});
  const inp=$('#gv');inp.oninput=()=>{let v=inp.value;if(f[2]==='nid')v=VParser.toEn(v).replace(/\D/g,'');c[k]=v;fieldEdited(c,k)};
  const next=()=>{gIdx++;saveDraft();render();if(Plat.speech.supported&&S.autoMic!==false)setTimeout(()=>{const m=$('#mic');if(screen==='guided'&&micOwner!=='g'&&m)m.click()},250)};
  const startG=()=>listenField('g',k,{show:t=>{const l=$('#live');if(l)l.textContent=t},
@@ -340,13 +354,19 @@ function vGuided(a){const list=guidedList();const c=cur.c;
  $('#back').onclick=()=>go('capture');$('#fin').onclick=()=>go('review')}
 
 function fieldInput(f,c,extra=''){const k=f[0],raw=c[k]??'',v=raw===EMPTY?'':raw;const t=f[2];
- const type=t==='date'&&v!=='/'?'date':'text';const im=t==='nid'||t==='num'?'inputmode="numeric"':'';
+ const type=t==='date'&&v!=='/'&&!(k==='licDate'&&cur&&cur.form==='removal')?'date':'text';
+ const ph=k==='licDate'&&type==='text'?'placeholder="السنة (٢٠١٦) أو التاريخ كامل"':k==='licType'?`placeholder="${esc(S.licType||'')}"`:'';const im=t==='nid'||t==='num'?'inputmode="numeric"':'';
  return `<label class="f ${extra}"><span>${f[1]}${t==='nid'&&v&&v!=='/'&&String(v).length!==14?' <b style="color:var(--bad)">('+toAr(String(v).length)+' رقم — لازم ١٤)</b>':''}</span>
- <div class="fwrap"><input type="${type}" data-k="${k}" ${im} value="${esc(v)}" ${raw===EMPTY?'placeholder="فاضية"':''}><button class="mic-s" data-mic="${k}" type="button">🎤</button></div></label>`}
+ <div class="fwrap"><input type="${type}" data-k="${k}" ${im} value="${esc(v)}" ${raw===EMPTY?'placeholder="فاضية"':ph}><button class="mic-s" data-mic="${k}" type="button">🎤</button></div>${k==='licWorks'&&cur&&cur.form==='removal'?worksChips(c):''}</label>`}
+function worksChips(c){const r=c.region||'sahara';return `<div class="chips" style="margin-top:8px">${LIC_WORKS[r].map((o,i)=>`<button class="chip ${plusify(c.licWorks)===o?'on':''}" data-works="${i}" type="button" style="text-align:right">${o}</button>`).join('')}<button class="chip" data-works="manual" type="button">✍️ كتابة يدوية</button></div>`}
 function fieldEdited(c,k,root){
  if(k==='floorsCount'){c.floorsManual=!isBlank(c.floorsCount);return}
  if(['floorFrom','floorTo','floorOne'].includes(k)){c.floorsManual=false;syncFloors(c);const i=root&&root.querySelector('input[data-k="floorsCount"]');if(i)i.value=c.floorsCount||''}}
 function bindFields(root,c,onChange){
+ root.querySelectorAll('[data-works]').forEach(b=>b.onclick=e=>{e.preventDefault();const inp=root.querySelector('input[data-k="licWorks"]');
+  if(b.dataset.works==='manual'){c.licWorks='';if(inp){inp.value='';inp.focus()}}else{c.licWorks=LIC_WORKS[c.region||'sahara'][+b.dataset.works];if(inp)inp.value=c.licWorks}
+  root.querySelectorAll('[data-works]').forEach(x=>x.classList.toggle('on',x===b&&b.dataset.works!=='manual'));onChange&&onChange('licWorks')});
+ root.querySelectorAll('input[data-k="licWorks"]').forEach(i=>i.addEventListener('blur',()=>{const p=plusify(i.value);if(p!==i.value){i.value=p;c.licWorks=p}}));
  root.querySelectorAll('input[data-k]').forEach(i=>i.oninput=()=>{let v=i.value;if(FMAP[i.dataset.k][2]==='nid')v=VParser.toEn(v).replace(/\D/g,'');c[i.dataset.k]=v;fieldEdited(c,i.dataset.k,root);onChange&&onChange(i.dataset.k)});
  root.querySelectorAll('[data-mic]').forEach(b=>b.onclick=()=>{const k=b.dataset.mic;const inp=root.querySelector(`input[data-k="${k}"]`);
   const ok=listenField('f_'+k,k,{show:t=>{inp.value='';inp.placeholder=t},done:t=>{inp.placeholder='';const v=normalizeField(k,t);c[k]=v;if(inp.type==='date'&&!/^\d{4}-/.test(v))inp.type='text';inp.value=v;fieldEdited(c,k,root);onChange&&onChange(k)},
@@ -450,6 +470,7 @@ function vSettings(a){
  const F=[['inspector','المهندس القائم بالمعاينة / محرر المحضر'],['jobSuffix','التخصص فقط (كلمة مهندس مطبوعة) — مثل: مدني'],['responsible','المهندس المسئول'],['tanzeem','مدير التنظيم'],['gm','مدير عام الإدارات الهندسية'],['legal','مدير الشئون القانونية'],['employee','الموظف المسئول عن السجل']];
  a.innerHTML=`<header class="top"><button class="iconbtn" id="back">→</button><h1>الإعدادات<span class="sub">بتتحفظ مرة واحدة وتتملى في كل نموذج</span></h1></header>
  <div class="card"><h3>👥 الأسماء</h3>${F.map(([k,l])=>`<label class="f"><span>${l}</span><input data-s="${k}" value="${esc(S[k])}"></label>`).join('')}</div>
+ <div class="card"><h3>📄 قرار الإزالة</h3><label class="f"><span>نوع الترخيص (افتراضي)</span><input data-s="licType" value="${esc(S.licType||'')}" placeholder="إنشاء سكني"></label><div class="hint" style="text-align:right">بيتكتب تلقائي في كل قرار إزالة، وتقدر تغيّره لقضية معيّنة من شاشة المراجعة.</div></div>
  <div class="card"><h3>💰 التكلفة</h3><label class="f"><span>سعر المتر المربع (جنيه)</span><input data-s="price" inputmode="numeric" value="${esc(S.price)}"></label>
  <div class="hint" style="text-align:right">التكلفة = المسطح × سعر المتر، وبتتكتب أرقام وحروف في المحضر.</div></div>
  <div class="card"><h3>🖋️ شكل الكتابة في الورقة</h3>

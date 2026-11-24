@@ -46,4 +46,5 @@ eq('t6 viol', r.violations, ['basement','projections']);
 r = P.parseTranscript('من الدور الأول إلى الدور الثاني المسطح 500 متر عدد الأدوار اتنين', 'report', T);
 eq('t7', [r.values.floorFrom, r.values.floorTo, r.values.areaM2, r.values.floorsCount], ['الأول','الثاني','500','2']);
 [['floorsCount','دورين','2'],['floorsCount','تلات أدوار','3'],['floorsCount','6','6']].forEach(([k,a,b])=>eq('nv '+k+' '+a,P.normalizeValue(k,a,T),b));
+[['licDate','ألفين ستاشر','2016'],['licDate','2023','2023'],['licDate','15 1 2016','2016-01-15'],['licWorks','أرضي زائد أربعة أدوار','أرضي + أربعة أدوار']].forEach(([k,a,b])=>eq('nv '+k+' '+a,P.normalizeValue(k,a,T),b));
 console.log(`pass ${pass} fail ${fail}`);
