@@ -76,6 +76,13 @@ const LIC_WORKS={
  haram:['أرضي ودورين','أرضي وتلاتة','أرضي وأربعة','بدروم وأرضي وأربعة']};
 const plusify=t=>String(t||'').replace(/\s*(?:\bو?زائد|\bو?زايد)\s*/g,' + ').replace(/\s+\+\s+/g,' + ').trim();
 /* ترخيص date in الإزالة: a full date or just a year (2016) — never filled automatically */
+/* split what was typed into [day, month, year] — a year alone leaves day and month empty; null = free text */
+function licDateParts(c){let t=VParser.toEn(String(c.licDate??'')).trim();if(t===EMPTY||t==='/')return null;if(!t)t=VParser.toEn(String(c.licYear??'')).trim();if(!t)return null;
+ let m;if((m=t.match(/^(\d{4})$/)))return['','',m[1]];
+ if((m=t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)))return[String(+m[3]),String(+m[2]),m[1]];
+ if((m=t.match(/^(\d{1,2})\s*[\/\-.]\s*(\d{1,2})\s*[\/\-.]\s*(\d{2,4})$/)))return[m[1],m[2],m[3]];
+ if((m=t.match(/^(\d{1,2})\s*[\/\-.]\s*(\d{4})$/)))return['',m[1],m[2]];
+ return null}
 const isYear=v=>/^\d{4}$/.test(VParser.toEn(String(v||'').trim()));
 const GROUPS={site:'📍 موقع المخالفة',insp:'🔎 المعاينة',lic:'📄 الترخيص',owner:'👤 المالك / المخالف',eng:'👷 المهندس والمقاول',viol:'⚠️ الأعمال المخالفة',reg:'🗂️ بيانات القيد بالسجل',dec:'⚖️ القرارات المرتبطة'};
 const REQ=new Set(['plot','street','ownerName','ownerNid','inspDate','inspHour','licNo','licYear','floorOne','floorFrom','floorTo','areaB','areaM2',
@@ -96,11 +103,11 @@ function newCase(){const t=today();return{id:uid(),created:Date.now(),updated:Da
 
 function nextReg(key){let m=0;for(const c of CASES){const v=num(c[key]);if(v>m)m=v}return m?String(m+1):''}
 /* fields shown/asked for this form = the blanks that exist on the chosen template page */
-function fieldsFor(form,c){c=c||cur.c;const keys=new Set((LAYOUTS[tplOf(c)][form]||[]).map(b=>b.k));if(keys.has('areaM2'))keys.add('floorsCount');for(const h of HANDWRITTEN)keys.delete(h);return FIELDS.filter(f=>keys.has(f[0]))}
+function fieldsFor(form,c){c=c||cur.c;const keys=new Set((LAYOUTS[tplOf(c)][form]||[]).map(b=>b.k));if(keys.has('areaM2'))keys.add('floorsCount');for(const k of [...keys])if(isHand(k,form))keys.delete(k);return FIELDS.filter(f=>keys.has(f[0]))}
 function isReq(f,form,c){if(!REQ.has(f[0]))return false;if(f[0]==='street'&&(c.region||'sahara')==='sahara')return false;
  if(['areaM2','areaB'].includes(f[0])&&!S.price&&form!=='report')return true;return true}
 const hasVal=(k,c)=>{const h=x=>String(c[x]??'').trim()!=='';if(k==='floorOne')return h('floorOne')||h('floorFrom');if(k==='floorFrom')return h('floorFrom')||h('floorOne');if(k==='licYear')return h('licYear')||!!licYearOf(c);return h(k)};
-const licYearOf=c=>{const d=VParser.toEn(String(c.licDate||''));const m=d.match(/^(\d{4})/);return m?m[1]:''};
+const licYearOf=c=>{if(isBlank(c.licDate))return'';const p=licDateParts({licDate:c.licDate});const y=p&&p[2];return y&&y.length===4?y:''};
 function missing(form,c){return fieldsFor(form,c).filter(f=>isReq(f,form,c)&&!hasVal(f[0],c)).sort((x,y)=>(y[0]==='floorsCount')-(x[0]==='floorsCount'))}
 function emptyOpt(form,c){const req=new Set(missing(form,c).map(f=>f[0]));return fieldsFor(form,c).filter(f=>!req.has(f[0])&&!hasVal(f[0],c))}
 const costOf=(a,n=1)=>{const p=num(S.price),x=num(a),f=num(n);return p&&x&&f?Math.round(p*x*f):0};
@@ -158,23 +165,31 @@ const EXTRA={
  H1:{report:[{k:'costCalc',kind:'free',x0:42,x1:553,y:578.5}]},
  H2:{report:[{k:'costCalc',kind:'free',x0:42,x1:553,y:610.5}]},
  H3:{report:[{k:'costCalc',kind:'free',x0:42,x1:553,y:608.5}]}};
-function layoutOf(c,form){const t=tplOf(c),ex=(EXTRA[t]&&EXTRA[t][form])||[];const skip=new Set(ex.map(e=>e.skip).filter(Boolean));
- return LAYOUTS[t][form].filter(b=>!skip.has(b.k)).concat(ex)}
+function layoutOf(c,form){const t=tplOf(c),ex=[...((EXTRA[t]&&EXTRA[t][form])||[])];const skip=new Set(ex.map(e=>e.skip).filter(Boolean));
+ const L=LAYOUTS[t][form];
+ if(form==='removal'){const a=L.find(b=>b.k==='periodFrom'),z=L.find(b=>b.k==='periodTo');
+  if(a&&z){const x1=a.x1+14,x0=z.x0;ex.push({k:'period',kind:'fixed',text:PERIOD_TEXT,x0,x1,y:a.y,cover:[x0,a.y-12.5,x1-x0,16.5]})}}
+ return L.filter(b=>!skip.has(b.k)).concat(ex)}
 const fmtN=n=>toAr(Math.round(n).toLocaleString('en-US').replace(/,/g,'٬'));
 function costParts(c){const p=num(S.price),parts=[];if(!p)return parts;
  const a=num(c.areaM2),f=num(c.floorsCount);if(a&&f)parts.push({lab:'الأدوار',txt:`${fmtN(a)} م٢ × ${toAr(f)} ${f===1?'دور':f===2?'دور':'أدوار'} × ${fmtN(p)}`,v:a*f*p});
  const t=tplOf(c);if(LAYOUTS[t].report.some(b=>b.k==='areaB')){const b=num(c.areaB);if(b)parts.push({lab:'البدروم',txt:`${fmtN(b)} م٢ × ${fmtN(p)}`,v:b*p})}
  return parts}
 const HANDWRITTEN=new Set(['inspHour','inspDate','reportRegDate','stopRegDate','removalRegDate']); // left blank on purpose — written by hand
+/* in قرار الإزالة the decision dates are written by hand after official registration; the period is a fixed sentence */
+const HAND_FORM={removal:new Set(['stopDate','reportDate','announceDate','periodFrom','periodTo'])};
+const isHand=(k,form)=>HANDWRITTEN.has(k)||!!(HAND_FORM[form]&&HAND_FORM[form].has(k));
+const PERIOD_TEXT='أقصاها ١٥ يوم من إعلان صاحب الشأن';
 async function drawOverlay(ctx,form,c,covers){ /* covers: array to collect white-out boxes instead of painting them (PDF draws them as vector) */
  const lay=layoutOf(c,form);const slash=(c.region||'sahara')==='sahara';
  ctx.direction='rtl';ctx.textBaseline='alphabetic';
  for(const b of lay){
-  if(HANDWRITTEN.has(b.k))continue;
+  if(b.kind!=='fixed'&&isHand(b.k,form))continue;
   let v=valueFor(b.k,c,b);if(v===EMPTY)v='';v=v==null?'':String(v).trim();
   const w=b.x1-b.x0,cx=(b.x0+b.x1)/2;
   if(b.kind==='date'){if(!v)continue;const box=[b.x0,b.y-12.5,w,16.5];if(covers)covers.push(box);else{ctx.fillStyle='#fff';ctx.fillRect(...box)}ctx.fillStyle=INK;fitText(ctx,v,cx,b.y,w-2);continue}
   ctx.fillStyle=INK;
+  if(b.kind==='fixed'){const box=b.cover;if(covers)covers.push(box);else{ctx.fillStyle='#fff';ctx.fillRect(...box)}ctx.fillStyle=INK;fitText(ctx,b.text,b.x1-2,b.y,b.x1-b.x0-4,11,6.5,'right');continue}
   if(b.kind==='free'){if(v)fitText(ctx,v,b.x1,b.y,w,b.fs||9.8,6.5,'right');continue}
   if(b.kind==='reflow'){const[x,y,ww,h]=b.cover;const box=[x,y,ww,h];if(covers)covers.push(box);else{ctx.fillStyle='#fff';ctx.fillRect(...box)}ctx.fillStyle=INK;
    fitText(ctx,S2_LINE+' '+(v||'……'),b.x1,b.y,w,11,6.5,'right');continue}
@@ -202,7 +217,7 @@ async function makePdf(form,c){ /* final: the original vector page + a transpare
  const blob=new Blob([await out.save()],{type:'application/pdf'});
  return{blob,cv:await renderForm(form,c)}}
 
-const APP_VERSION='2.4.0';
+const APP_VERSION='2.5.0';
 
 /* ============ storage ============ */
 async function loadAll(){
@@ -251,7 +266,7 @@ function applyParse0(text,c,form){
  if(r.licensed!==undefined)c.licensed=r.licensed;
  if(r.values.area){if(/صحرا/.test(r.values.area)){setRegion(c,'sahara')}else setRegion(c,'haram')}
  return n}
-const normalizeField=(key,text)=>VParser.normalizeValue(key,text,today())||text.trim();
+const normalizeField=(key,text)=>{if(key==='licDate'){const n=VParser.numsOf(text);if(n.length===1)return String(n[0]);if(n.length>=2)return n.join('/')}return VParser.normalizeValue(key,text,today())||text.trim()};
 
 /* ============ screens ============ */
 function go(s){stopMic();screen=s;render();window.scrollTo(0,0);if(['capture','missing','review','guided'].includes(s))saveDraft()}
@@ -334,7 +349,7 @@ function vGuided(a){const list=guidedList();const c=cur.c;
  <div class="card"><div class="guide-n">${GROUPS[f[3]]}</div><div class="guide-f">${f[1]}</div>
  <div class="micwrap"><button class="mic small ${on?'live':''}" id="mic">${on?'■':'🎤'}</button></div>
  <div class="live-t" id="live" style="text-align:center"></div>
- <input id="gv" class="guide-v" ${f[2]==='date'&&c[k]!=='/'&&!(k==='licDate'&&cur.form==='removal')?'type="date"':''} ${f[2]==='nid'||f[2]==='num'?'inputmode="numeric"':''} value="${esc(c[k]===EMPTY?'':c[k]??'')}" placeholder="${c[k]===EMPTY?'فاضية':'قول أو اكتب'}">
+ <input id="gv" class="guide-v" ${f[2]==='date'&&c[k]!=='/'&&k!=='licDate'?'type="date"':''} ${f[2]==='nid'||f[2]==='num'||k==='licDate'?'inputmode="numeric"':''} value="${esc(c[k]===EMPTY?'':c[k]??'')}" placeholder="${c[k]===EMPTY?'فاضية':'قول أو اكتب'}">
  ${c[k]&&f[2]!=='date'?`<div class="hint" style="margin-top:6px">${esc(showV(c[k]))}</div>`:''}
  ${k==='licWorks'&&cur.form==='removal'?worksChips(c):''}
  <div class="actions"><button class="btn sec" id="prev">→ السابق</button><button class="btn" id="next">التالي ←</button>
@@ -354,8 +369,8 @@ function vGuided(a){const list=guidedList();const c=cur.c;
  $('#back').onclick=()=>go('capture');$('#fin').onclick=()=>go('review')}
 
 function fieldInput(f,c,extra=''){const k=f[0],raw=c[k]??'',v=raw===EMPTY?'':raw;const t=f[2];
- const type=t==='date'&&v!=='/'&&!(k==='licDate'&&cur&&cur.form==='removal')?'date':'text';
- const ph=k==='licDate'&&type==='text'?'placeholder="السنة (٢٠١٦) أو التاريخ كامل"':k==='licType'?`placeholder="${esc(S.licType||'')}"`:'';const im=t==='nid'||t==='num'?'inputmode="numeric"':'';
+ const type=t==='date'&&v!=='/'&&k!=='licDate'?'date':'text';
+ const ph=k==='licDate'?'inputmode="numeric" placeholder="زي ما في الرخصة: ٢٠٢٣ أو ١٥/٣/٢٠٢٣"':k==='licType'?`placeholder="${esc(S.licType||'')}"`:'';const im=t==='nid'||t==='num'?'inputmode="numeric"':'';/* licDate gets its number pad via ph */
  return `<label class="f ${extra}"><span>${f[1]}${t==='nid'&&v&&v!=='/'&&String(v).length!==14?' <b style="color:var(--bad)">('+toAr(String(v).length)+' رقم — لازم ١٤)</b>':''}</span>
  <div class="fwrap"><input type="${type}" data-k="${k}" ${im} value="${esc(v)}" ${raw===EMPTY?'placeholder="فاضية"':ph}><button class="mic-s" data-mic="${k}" type="button">🎤</button></div>${k==='licWorks'&&cur&&cur.form==='removal'?worksChips(c):''}</label>`}
 function worksChips(c){const r=c.region||'sahara';return `<div class="chips" style="margin-top:8px">${LIC_WORKS[r].map((o,i)=>`<button class="chip ${plusify(c.licWorks)===o?'on':''}" data-works="${i}" type="button" style="text-align:right">${o}</button>`).join('')}<button class="chip" data-works="manual" type="button">✍️ كتابة يدوية</button></div>`}

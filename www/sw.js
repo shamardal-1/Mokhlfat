@@ -1,5 +1,5 @@
 /* offline cache for the web build — bump VERSION on every release */
-const VERSION = 'v2.4.0';
+const VERSION = 'v2.5.0';
 const FILES = [
   "./",
   "css/app.css",
