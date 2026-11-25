@@ -22,7 +22,7 @@ function w3(n){const o=['','واحد','اثنان','ثلاثة','أربعة','خ
 function numWords(n){n=Math.floor(Math.abs(n));if(!n)return'صفر';const S=[[1e9,'مليار','ملياران','مليارات'],[1e6,'مليون','مليونان','ملايين'],[1e3,'ألف','ألفان','آلاف']],p=[];
  for(const[v,s1,s2,pl]of S){const q=Math.floor(n/v);n%=v;if(!q)continue;if(q===1)p.push(s1);else if(q===2)p.push(s2);else if(q<=10)p.push(w3(q)+' '+pl);else p.push(w3(q)+' '+s1)}
  if(n)p.push(w3(n));return p.join(' و')}
-const num=v=>{const x=parseFloat(toEn(v).replace(/[,،٬\s]/g,''));return isFinite(x)?x:0};
+const num=v=>{let t=toEn(String(v??'')).replace(/\s/g,'').replace(/[٫]/g,'.');if(/^\d+[,،٬]\d{1,2}$/.test(t))t=t.replace(/[,،٬]/,'.');const x=parseFloat(t.replace(/[,،٬]/g,''));return isFinite(x)?x:0};
 
 /* ============ data model ============ */
 const FORMS={
@@ -217,7 +217,7 @@ async function makePdf(form,c){ /* final: the original vector page + a transpare
  const blob=new Blob([await out.save()],{type:'application/pdf'});
  return{blob,cv:await renderForm(form,c)}}
 
-const APP_VERSION='2.5.0';
+const APP_VERSION='2.5.1';
 
 /* ============ storage ============ */
 async function loadAll(){
